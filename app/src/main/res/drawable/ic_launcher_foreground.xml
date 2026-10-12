@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A calendar page with a line through the day: Dayline's mark. Same white card as Doable and
+     Jotter, in Dayline's blue. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#26000000" android:pathData="M42,37h26a8,8 0 0 1 8,8v26a8,8 0 0 1 -8,8h-26a8,8 0 0 1 -8,-8v-26a8,8 0 0 1 8,-8z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M41,35h26a8,8 0 0 1 8,8v26a8,8 0 0 1 -8,8h-26a8,8 0 0 1 -8,-8v-26a8,8 0 0 1 8,-8z" />
+    <path android:fillColor="#1A6FD8" android:pathData="M41,35h26a8,8 0 0 1 8,8v4h-42v-4a8,8 0 0 1 8,-8z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M44,31h4v9h-4z M60,31h4v9h-4z" />
+    <path android:fillColor="#1A6FD8" android:pathData="M41,57h26a3,3 0 0 1 0,6h-26a3,3 0 0 1 0,-6z" />
+    <path android:fillColor="#C9D9F0" android:pathData="M41,67h14a2,2 0 0 1 0,4h-14a2,2 0 0 1 0,-4z" />
+</vector>
