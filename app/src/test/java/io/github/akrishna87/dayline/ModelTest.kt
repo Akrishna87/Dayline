@@ -5,8 +5,11 @@ import io.github.akrishna87.dayline.model.Data
 import io.github.akrishna87.dayline.model.Dates
 import io.github.akrishna87.dayline.model.Event
 import io.github.akrishna87.dayline.model.EventCalendar
-import io.github.akrishna87.dayline.model.Occurrence
-import io.github.akrishna87.dayline.model.Repeat
+import io.github.akrishna87.dayline.model.Availability
+import io.github.akrishna87.dayline.model.CalendarView
+import io.github.akrishna87.dayline.model.Freq
+import io.github.akrishna87.dayline.model.Recurrence
+import io.github.akrishna87.dayline.model.Rule
 import io.github.akrishna87.dayline.model.Settings
 import io.github.akrishna87.dayline.model.ThemeMode
 import org.json.JSONObject
@@ -28,13 +31,15 @@ class ModelTest {
                 Event(
                     title = "Swim", date = LocalDate.of(2026, 10, 5), endDate = LocalDate.of(2026, 10, 5),
                     start = LocalTime.of(7, 0), end = LocalTime.of(8, 0), location = "Pool", notes = "Bring goggles",
-                    calendarId = gym.id, repeat = Repeat.WEEKLY, repeatUntil = LocalDate.of(2026, 12, 31), reminder = 30,
+                    calendarId = gym.id, rule = Rule(Freq.WEEKLY, 2, setOf(DayOfWeek.MONDAY), until = LocalDate.of(2026, 12, 31)), reminders = listOf(10, 30),
+                    color = 0xFF8E24AA.toInt(), zone = "Europe/London", guests = listOf("sam@example.com"), availability = Availability.FREE,
                     skipped = listOf(LocalDate.of(2026, 10, 12)),
                 ),
-                Event(title = "Trip", date = LocalDate.of(2026, 11, 1), endDate = LocalDate.of(2026, 11, 4), reminder = null),
+                Event(title = "Trip", date = LocalDate.of(2026, 11, 1), endDate = LocalDate.of(2026, 11, 4), reminders = emptyList(), rule = Rule(Freq.MONTHLY, weekdays = setOf(DayOfWeek.SUNDAY), nth = 1, count = 5)),
             ),
             calendars = listOf(EventCalendar.Personal, gym),
-            settings = Settings(theme = ThemeMode.DARK, weekStartsSunday = true, reminders = false, defaultReminder = null, askedNotifications = true),
+            settings = Settings(theme = ThemeMode.DARK, weekStartsSunday = true, reminders = false, defaultReminders = listOf(5, 60), defaultAllDayReminders = emptyList(),
+                allDayReminderAt = LocalTime.of(8, 0), defaultDuration = 30, view = CalendarView.WEEK, showWeekNumbers = true, showWeekends = false, secondZone = "Asia/Kolkata", askedNotifications = true),
         )
         assertEquals(data, Data.fromJson(JSONObject(data.toJson().toString())))
     }
@@ -74,13 +79,13 @@ class ModelTest {
     fun timeLabels() {
         val day = LocalDate.of(2026, 10, 9)
         val meeting = Event(title = "m", date = day, start = LocalTime.of(9, 0), end = LocalTime.of(10, 30))
-        assertEquals("09:00 – 10:30", Dates.timeLabel(Occurrence(meeting, day), day, true, Locale.UK))
+        assertEquals("09:00 – 10:30", Dates.timeLabel(Recurrence.occurrence(meeting, day, java.time.ZoneOffset.UTC), day, true, Locale.UK))
         val overnight = Event(title = "o", date = day, endDate = day.plusDays(2), start = LocalTime.of(20, 0), end = LocalTime.of(8, 0))
-        val o = Occurrence(overnight, day)
+        val o = Recurrence.occurrence(overnight, day, java.time.ZoneOffset.UTC)
         assertEquals("From 20:00", Dates.timeLabel(o, day, true, Locale.UK))
         assertEquals("All day", Dates.timeLabel(o, day.plusDays(1), true, Locale.UK))
         assertEquals("Until 08:00", Dates.timeLabel(o, day.plusDays(2), true, Locale.UK))
-        assertEquals("All day", Dates.timeLabel(Occurrence(Event(title = "h", date = day), day), day, true, Locale.UK))
+        assertEquals("All day", Dates.timeLabel(Recurrence.occurrence(Event(title = "h", date = day), day), day, true, Locale.UK))
     }
 
     @Test
@@ -89,5 +94,16 @@ class ModelTest {
         assertEquals(listOf("Personal", "Work"), d.allCalendars.map { it.name })
         assertEquals(0, d.events.size)
         assertNull(d.event("anything"))
+    }
+
+    @Test
+    fun daylineOneFilesCarryOver() {
+        val v1 = """{"events":[{"id":"a","title":"Gym","date":"2026-10-05","repeat":"WEEKLY","repeatUntil":"2026-12-31","reminder":30},
+            {"id":"b","title":"Quiet","date":"2026-10-05","reminder":-1}],"settings":{"defaultReminder":15}}"""
+        val d = Data.fromJson(JSONObject(v1))
+        assertEquals(Rule(Freq.WEEKLY, weekdays = setOf(DayOfWeek.MONDAY), until = LocalDate.of(2026, 12, 31)), d.event("a")!!.rule)
+        assertEquals(listOf(30), d.event("a")!!.reminders)
+        assertEquals(emptyList<Int>(), d.event("b")!!.reminders)
+        assertEquals(listOf(15), d.settings.defaultReminders)
     }
 }

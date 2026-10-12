@@ -17,7 +17,6 @@ import androidx.core.content.ContextCompat
 import io.github.akrishna87.dayline.model.Data
 import io.github.akrishna87.dayline.model.Dates
 import io.github.akrishna87.dayline.model.Event
-import io.github.akrishna87.dayline.model.Occurrence
 import io.github.akrishna87.dayline.model.Recurrence
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -46,8 +45,8 @@ object Reminders {
             emptyMap()
         } else {
             data.visibleEvents.mapNotNull { e ->
-                val (at, day) = Recurrence.nextReminder(e, now)?.takeIf { it.first.isBefore(now.plusDays(90)) } ?: return@mapNotNull null
-                e.id to (at.atZone(zone).toInstant().toEpochMilli() to day)
+                val (at, o) = Recurrence.nextReminder(e, now, data.settings.allDayReminderAt, zone)?.takeIf { it.first.isBefore(now.plusDays(90)) } ?: return@mapNotNull null
+                e.id to (at.atZone(zone).toInstant().toEpochMilli() to o.day)
             }.toMap()
         }
         for (id in before - wanted.keys) alarms.cancel(alarm(context, id, null))
@@ -96,7 +95,8 @@ object Reminders {
         }
         val today = LocalDate.now()
         val is24 = android.text.format.DateFormat.is24HourFormat(context)
-        val whenText = "${Dates.dayLabel(day, today)} · ${Dates.timeLabel(Occurrence(event, day), day, is24)}"
+        val o = Recurrence.occurrence(event, day)
+        val whenText = "${Dates.dayLabel(o.startDay, today)} · ${Dates.timeLabel(o, o.startDay, is24)}"
         val text = listOf(whenText, event.location, data.calendar(event.calendarId).name).filter { it.isNotBlank() }.joinToString(" · ")
         val open = PendingIntent.getActivity(
             context, event.id.hashCode(),

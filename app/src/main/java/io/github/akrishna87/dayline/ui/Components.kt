@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.HorizontalDivider
@@ -50,7 +51,6 @@ import androidx.compose.ui.unit.dp
 import io.github.akrishna87.dayline.model.Data
 import io.github.akrishna87.dayline.model.Dates
 import io.github.akrishna87.dayline.model.Occurrence
-import io.github.akrishna87.dayline.model.Repeat
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -67,9 +67,9 @@ val LocalClock = compositionLocalOf { Clock(LocalDateTime.now(), true) }
 fun EventRow(o: Occurrence, day: LocalDate, data: Data, onClick: () -> Unit) {
     val clock = LocalClock.current
     val e = o.event
-    val color = Color(data.calendar(e.calendarId).color)
+    val color = Color(data.colorOf(e))
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    val past = !o.endDay.isAfter(clock.today) && (o.endDay.isBefore(clock.today) || (e.end ?: e.start)?.let { it.isBefore(clock.now.toLocalTime()) } == true)
+    val past = !o.end.isAfter(clock.now)
     Row(
         Modifier
             .fillMaxWidth()
@@ -90,9 +90,13 @@ fun EventRow(o: Occurrence, day: LocalDate, data: Data, onClick: () -> Unit) {
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(Dates.timeLabel(o, day, clock.is24Hour), style = MaterialTheme.typography.bodySmall, color = muted)
-                if (e.repeat != Repeat.NONE) {
+                if (e.rule != null) {
                     Spacer(Modifier.width(6.dp))
-                    Icon(Icons.Rounded.Repeat, e.repeat.label, Modifier.size(14.dp), tint = muted)
+                    Icon(Icons.Rounded.Repeat, e.rule.label(e.date), Modifier.size(14.dp), tint = muted)
+                }
+                if (e.guests.isNotEmpty()) {
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Rounded.People, "${e.guests.size} guests", Modifier.size(14.dp), tint = muted)
                 }
                 if (e.location.isNotBlank()) {
                     Spacer(Modifier.width(10.dp))

@@ -66,18 +66,20 @@ object Dates {
      * event over several days, which part of it [day] is ("Until 17:00", "From 09:00", "All day").
      */
     fun timeLabel(o: Occurrence, day: LocalDate, is24Hour: Boolean, locale: Locale = Locale.getDefault()): String {
-        val e = o.event
         val f = timeFormatter(is24Hour, locale)
-        if (e.allDay) return "All day"
-        val firstDay = day == o.day
+        if (o.allDay) return "All day"
+        val firstDay = day == o.startDay
         val lastDay = day == o.endDay
         return when {
-            firstDay && lastDay -> if (e.end != null) "${f.format(e.start)} – ${f.format(e.end)}" else f.format(e.start)
-            firstDay -> "From ${f.format(e.start)}"
-            lastDay && e.end != null -> "Until ${f.format(e.end)}"
+            firstDay && lastDay -> "${f.format(o.start)} – ${f.format(o.end)}"
+            firstDay -> "From ${f.format(o.start)}"
+            lastDay -> "Until ${f.format(o.end)}"
             else -> "All day"
         }
     }
+
+    /** ISO week number of [day] ("Week 42"). */
+    fun weekNumber(day: LocalDate): Int = day.get(java.time.temporal.IsoFields.WEEK_OF_WEEK_BASED_YEAR)
 
     /** A sensible default start for a new event: the next whole hour. */
     fun nextHour(now: LocalTime): LocalTime = if (now.hour == 23) LocalTime.of(23, 0) else LocalTime.of(now.hour + 1, 0)

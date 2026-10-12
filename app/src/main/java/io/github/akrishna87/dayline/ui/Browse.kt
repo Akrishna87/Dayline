@@ -21,10 +21,14 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.FileOpen
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -50,11 +54,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import io.github.akrishna87.dayline.Backup
+import io.github.akrishna87.dayline.LaunchRequest
+import io.github.akrishna87.dayline.MainActivity
+import io.github.akrishna87.dayline.Sharing
 import io.github.akrishna87.dayline.Reminders
 import io.github.akrishna87.dayline.Store
 import io.github.akrishna87.dayline.model.CalendarColors
 import io.github.akrishna87.dayline.model.Data
 import io.github.akrishna87.dayline.model.Dates
+import io.github.akrishna87.dayline.model.Event
 import io.github.akrishna87.dayline.model.EventCalendar
 import io.github.akrishna87.dayline.model.Occurrence
 import io.github.akrishna87.dayline.model.Recurrence
@@ -69,6 +77,11 @@ fun CalendarsScreen(data: Data, padding: PaddingValues) {
     var adding by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<EventCalendar?>(null) }
     var removing by remember { mutableStateOf<EventCalendar?>(null) }
+    val context = LocalContext.current
+    val messages = LocalMessages.current
+    val icsPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) MainActivity.launch.value = LaunchRequest.ImportIcs(uri)
+    }
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
@@ -101,6 +114,16 @@ fun CalendarsScreen(data: Data, padding: PaddingValues) {
                         IconButton(onClick = { menu = true }, Modifier.semantics { contentDescription = "${c.name} options" }) { Icon(Icons.Rounded.MoreVert, null) }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(text = { Text("Rename or recolour") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { menu = false; editing = c })
+                            DropdownMenuItem(
+                                text = { Text("Export as .ics") },
+                                leadingIcon = { Icon(Icons.Rounded.Share, null) },
+                                onClick = {
+                                    menu = false
+                                    val events = data.events.filter { it.calendarId == c.id }
+                                    if (events.isEmpty()) messages.show("${c.name} has no events to export")
+                                    else if (!Sharing.shareIcs(context, events, c.name)) messages.show("No app can receive the file")
+                                },
+                            )
                             if (data.calendars.size > 1) {
                                 DropdownMenuItem(text = { Text("Delete") }, leadingIcon = { Icon(Icons.Rounded.Delete, null) }, onClick = { menu = false; removing = c })
                             }
@@ -111,6 +134,14 @@ fun CalendarsScreen(data: Data, padding: PaddingValues) {
             )
         }
         item { SectionHeader("More") }
+        item {
+            ListRow(
+                "Import events",
+                leading = { Icon(Icons.Rounded.FileOpen, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                detail = "From an .ics file, such as one exported from Google Calendar",
+                onClick = { icsPicker.launch(arrayOf("text/calendar", "text/x-vcalendar", "application/ics", "application/octet-stream", "*/*")) },
+            )
+        }
         item {
             ListRow(
                 "Settings",
@@ -161,9 +192,9 @@ fun SearchPage(data: Data) {
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     val q = query.text.trim()
     val results = if (q.isEmpty()) emptyList() else data.events
-        .filter { it.title.contains(q, true) || it.location.contains(q, true) || it.notes.contains(q, true) }
-        .map { e -> Occurrence(e, Recurrence.next(e, today) ?: e.date) }
-        .sortedWith(compareBy<Occurrence>({ it.day.isBefore(today) }, { if (it.day.isBefore(today)) -it.day.toEpochDay() else it.day.toEpochDay() }))
+        .filter { it.title.contains(q, true) || it.location.contains(q, true) || it.notes.contains(q, true) || it.guests.any { g -> g.contains(q, true) } }
+        .map { e -> Recurrence.occurrence(e, Recurrence.next(e, today) ?: e.date) }
+        .sortedWith(compareBy<Occurrence>({ it.startDay.isBefore(today) }, { if (it.startDay.isBefore(today)) -it.startDay.toEpochDay() else it.startDay.toEpochDay() }))
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
         PageBar(onBack = { nav.pop() }, leading = {
             Icon(Icons.Rounded.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -191,12 +222,12 @@ fun SearchPage(data: Data) {
             items(results, key = { it.event.id }) { o ->
                 Column {
                     Text(
-                        Dates.dayHeading(o.day, today),
+                        Dates.dayHeading(o.startDay, today),
                         Modifier.padding(start = 32.dp, top = 8.dp),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    EventRow(o, o.day, data) { nav.push(Page.EventPage(o.event.id, o.day)) }
+                    EventRow(o, o.startDay, data) { nav.push(Page.EventPage(o.event.id, o.day)) }
                 }
             }
         }
@@ -213,6 +244,8 @@ fun SettingsPage(data: Data) {
     var refresh by remember { mutableIntStateOf(0) }
     var restoring by remember { mutableStateOf<Data?>(null) }
     var reminderMenu by remember { mutableStateOf(false) }
+    var pickingAllDayTime by remember { mutableStateOf(false) }
+    var pickingZone by remember { mutableStateOf(false) }
     val canNotify = remember(refresh) { Reminders.canNotify(context) }
     val canExact = remember(refresh) { Reminders.canScheduleExact(context) }
     androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
@@ -245,6 +278,37 @@ fun SettingsPage(data: Data) {
             }
             item { SectionHeader("Calendar") }
             item {
+                Box {
+                    var durationMenu by remember { mutableStateOf(false) }
+                    ListRow("Default event duration", detail = "${s.defaultDuration} minutes", onClick = { durationMenu = true })
+                    DropdownMenu(expanded = durationMenu, onDismissRequest = { durationMenu = false }) {
+                        for (m in listOf(15, 20, 30, 45, 60, 90, 120)) DropdownMenuItem(text = { Text("$m minutes") }, onClick = { durationMenu = false; Store.updateSettings { it.copy(defaultDuration = m) } })
+                    }
+                }
+            }
+            item {
+                ListRow(
+                    "Show week numbers",
+                    trailing = { Switch(checked = s.showWeekNumbers, onCheckedChange = { on -> Store.updateSettings { it.copy(showWeekNumbers = on) } }) },
+                    onClick = { Store.updateSettings { it.copy(showWeekNumbers = !it.showWeekNumbers) } },
+                )
+            }
+            item {
+                ListRow(
+                    "Show weekends in week view",
+                    trailing = { Switch(checked = s.showWeekends, onCheckedChange = { on -> Store.updateSettings { it.copy(showWeekends = on) } }) },
+                    onClick = { Store.updateSettings { it.copy(showWeekends = !it.showWeekends) } },
+                )
+            }
+            item {
+                ListRow(
+                    "Second time zone",
+                    detail = s.secondZone?.replace('_', ' ') ?: "Off · shown beside the hours in day and week views",
+                    trailing = { if (s.secondZone != null) IconButton(onClick = { Store.updateSettings { it.copy(secondZone = null) } }, Modifier.semantics { contentDescription = "Turn off second time zone" }) { Icon(Icons.Rounded.Close, null) } },
+                    onClick = { pickingZone = true },
+                )
+            }
+            item {
                 ListRow(
                     "Week starts on Sunday",
                     trailing = { Switch(checked = s.weekStartsSunday, onCheckedChange = { on -> Store.updateSettings { it.copy(weekStartsSunday = on) } }) },
@@ -263,12 +327,43 @@ fun SettingsPage(data: Data) {
             item {
                 Box {
                     ListRow(
-                        "Default reminder",
-                        detail = ReminderChoices.label(s.defaultReminder) + " · for new events",
+                        "Default notifications",
+                        detail = s.defaultReminders.joinToString(", ") { ReminderChoices.label(it) }.ifEmpty { "None" } + " · for new events",
                         onClick = { reminderMenu = true },
                     )
-                    ReminderMenu(reminderMenu, s.defaultReminder, { reminderMenu = false }) { m -> Store.updateSettings { it.copy(defaultReminder = m) } }
+                    DropdownMenu(expanded = reminderMenu, onDismissRequest = { reminderMenu = false }) {
+                        DropdownMenuItem(text = { Text("None") }, onClick = { reminderMenu = false; Store.updateSettings { it.copy(defaultReminders = emptyList()) } })
+                        for (m in ReminderChoices.minutes) {
+                            DropdownMenuItem(
+                                text = { Text(ReminderChoices.label(m)) },
+                                onClick = { Store.updateSettings { it.copy(defaultReminders = if (m in it.defaultReminders) it.defaultReminders - m else (it.defaultReminders + m).sorted()) } },
+                                trailingIcon = { if (m in s.defaultReminders) Icon(Icons.Rounded.Check, null) },
+                            )
+                        }
+                    }
                 }
+            }
+            item {
+                Box {
+                    var allDayMenu by remember { mutableStateOf(false) }
+                    ListRow(
+                        "Default all-day notifications",
+                        detail = s.defaultAllDayReminders.joinToString(", ") { ReminderChoices.allDayLabel(it, s.allDayReminderAt) }.ifEmpty { "None" },
+                        onClick = { allDayMenu = true },
+                    )
+                    DropdownMenu(expanded = allDayMenu, onDismissRequest = { allDayMenu = false }) {
+                        for (m in listOf(0, 1440, 2880, 10080)) {
+                            DropdownMenuItem(
+                                text = { Text(ReminderChoices.allDayLabel(m, s.allDayReminderAt)) },
+                                onClick = { Store.updateSettings { it.copy(defaultAllDayReminders = if (m in it.defaultAllDayReminders) it.defaultAllDayReminders - m else (it.defaultAllDayReminders + m).sorted()) } },
+                                trailingIcon = { if (m in s.defaultAllDayReminders) Icon(Icons.Rounded.Check, null) },
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                ListRow("All-day notifications at", detail = Dates.timeFormatter(LocalClock.current.is24Hour).format(s.allDayReminderAt), onClick = { pickingAllDayTime = true })
             }
             if (s.reminders && !canNotify) {
                 item {
@@ -327,6 +422,8 @@ fun SettingsPage(data: Data) {
             }
         }
     }
+    if (pickingAllDayTime) TimePickDialog(s.allDayReminderAt, LocalClock.current.is24Hour, onPick = { t -> Store.updateSettings { it.copy(allDayReminderAt = t) } }, onDismiss = { pickingAllDayTime = false })
+    if (pickingZone) ZoneDialog(s.secondZone, onPick = { z -> Store.updateSettings { it.copy(secondZone = z) } }, onDismiss = { pickingZone = false })
     restoring?.let { backup ->
         ConfirmDialog(
             "Restore this backup?",
@@ -339,4 +436,51 @@ fun SettingsPage(data: Data) {
             onDismiss = { restoring = null },
         )
     }
+}
+
+/** Events read from an .ics file: choose which calendar they go into, then add them. Events already here (same id) are skipped. */
+@Composable
+fun ImportDialog(events: List<Event>, data: Data, onDismiss: () -> Unit) {
+    val messages = LocalMessages.current
+    val calendars = data.allCalendars
+    var chosen by remember { mutableStateOf(calendars.first().id) }
+    val known = remember(data.events) { data.events.map { it.id }.toSet() }
+    val fresh = events.filter { it.id !in known }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (events.size == 1) "Add 1 event" else "Add ${events.size} events") },
+        text = {
+            Column {
+                val first = events.minOf { it.date }
+                val last = events.maxOf { it.date }
+                Text(
+                    (if (events.size == 1) events.first().title.ifBlank { "(No title)" } + " · " + Dates.fieldDate(first, LocalClock.current.today)
+                    else "From ${Dates.fieldDate(first, LocalClock.current.today)} to ${Dates.fieldDate(last, LocalClock.current.today)}") +
+                        (if (fresh.size < events.size) "\n${events.size - fresh.size} already in Dayline will be skipped." else ""),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text("Add to", Modifier.padding(top = 16.dp, bottom = 4.dp), style = MaterialTheme.typography.titleSmall)
+                for (c in calendars) {
+                    ListRow(
+                        c.name,
+                        leading = { RadioButton(selected = chosen == c.id, onClick = { chosen = c.id }) },
+                        trailing = { ColorDot(c.color, 14.dp) },
+                        onClick = { chosen = c.id },
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    Store.addEvents(fresh.map { it.copy(calendarId = chosen) })
+                    messages.show(if (fresh.size == 1) "1 event added" else "${fresh.size} events added")
+                    onDismiss()
+                },
+                enabled = fresh.isNotEmpty(),
+            ) { Text("Import") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

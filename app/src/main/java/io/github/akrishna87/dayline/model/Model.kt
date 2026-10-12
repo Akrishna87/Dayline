@@ -4,59 +4,67 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.util.UUID
 
 fun newId(): String = UUID.randomUUID().toString()
 
 const val DEFAULT_CALENDAR_ID = "personal"
 
-enum class Repeat(val label: String) {
-    NONE("Doesn't repeat"),
-    DAILY("Every day"),
-    WEEKDAYS("Every weekday"),
-    WEEKLY("Every week"),
-    MONTHLY("Every month"),
-    YEARLY("Every year"),
-}
-
-/** Colours for calendars. */
+/** Colours for calendars and events: Google Calendar's eleven, plus a few more. */
 object CalendarColors {
-    val choices = listOf(
-        0xFFD1453B.toInt(), // red
-        0xFFEB8909.toInt(), // orange
-        0xFFE0B000.toInt(), // yellow
-        0xFF299438.toInt(), // green
-        0xFF158FAD.toInt(), // teal
-        0xFF1A73E8.toInt(), // blue
-        0xFF5B5BD6.toInt(), // indigo
-        0xFFAF38EB.toInt(), // violet
-        0xFFE05194.toInt(), // pink
-        0xFF808080.toInt(), // grey
+    /** Name and colour, in Google Calendar's order. */
+    val named = listOf(
+        "Tomato" to 0xFFD50000.toInt(),
+        "Flamingo" to 0xFFE67C73.toInt(),
+        "Tangerine" to 0xFFF4511E.toInt(),
+        "Banana" to 0xFFF6BF26.toInt(),
+        "Sage" to 0xFF33B679.toInt(),
+        "Basil" to 0xFF0B8043.toInt(),
+        "Peacock" to 0xFF039BE5.toInt(),
+        "Blueberry" to 0xFF3F51B5.toInt(),
+        "Lavender" to 0xFF7986CB.toInt(),
+        "Grape" to 0xFF8E24AA.toInt(),
+        "Graphite" to 0xFF616161.toInt(),
     )
+    val choices = named.map { it.second } + listOf(0xFF1A73E8.toInt(), 0xFF00897B.toInt(), 0xFFAD1457.toInt())
     val Personal = 0xFF1A73E8.toInt()
-    val Work = 0xFF299438.toInt()
+    val Work = 0xFF0B8043.toInt()
+
+    fun name(color: Int): String? = named.firstOrNull { it.second == color }?.first
 }
 
-/** How long before an event starts its reminder goes off. All-day events count from 9:00 on the day. */
+/** How long before an event starts its notifications go off. All-day events count from a set time on the day. */
 object ReminderChoices {
-    val minutes: List<Int?> = listOf(null, 0, 5, 10, 15, 30, 60, 120, 1440)
+    val minutes: List<Int> = listOf(0, 5, 10, 15, 30, 60, 120, 1440, 2880, 10080)
 
-    fun label(m: Int?): String = when (m) {
-        null -> "No reminder"
-        0 -> "At the start"
-        1440 -> "1 day before"
-        else -> if (m % 60 == 0) "${m / 60} hour${if (m == 60) "" else "s"} before" else "$m minutes before"
+    fun label(m: Int?): String = when {
+        m == null -> "No notification"
+        m == 0 -> "At the start"
+        m % 10080 == 0 -> plural(m / 10080, "week") + " before"
+        m % 1440 == 0 -> plural(m / 1440, "day") + " before"
+        m % 60 == 0 -> plural(m / 60, "hour") + " before"
+        else -> plural(m, "minute") + " before"
     }
 
-    /** The time of day all-day events "start" for reminders. */
-    val AllDayAt: LocalTime = LocalTime.of(9, 0)
+    /** For an all-day event: "On the day at 09:00", "1 day before at 09:00". */
+    fun allDayLabel(m: Int, at: LocalTime): String {
+        val days = (m + 1439) / 1440
+        val time = at.toString()
+        return if (days == 0) "On the day at $time" else plural(days, "day") + " before at $time"
+    }
+
+    private fun plural(n: Int, one: String) = if (n == 1) "1 $one" else "$n ${one}s"
 }
+
+/** Whether an event shows you as busy (the default) or free. */
+enum class Availability { BUSY, FREE }
 
 /** A list of events with a name and colour, like "Personal" or "Work". Hidden calendars' events aren't shown. */
 data class EventCalendar(
     val id: String = newId(),
     val name: String,
-    val color: Int = CalendarColors.choices[5],
+    val color: Int = CalendarColors.Personal,
     val visible: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
 ) {
@@ -73,7 +81,7 @@ data class EventCalendar(
         fun fromJson(o: JSONObject) = EventCalendar(
             id = o.optString("id").ifEmpty { newId() },
             name = o.optString("name"),
-            color = o.optInt("color", CalendarColors.choices[5]),
+            color = o.optInt("color", CalendarColors.Personal),
             visible = o.optBoolean("visible", true),
             createdAt = o.optLong("createdAt"),
         )
@@ -83,29 +91,36 @@ data class EventCalendar(
 data class Event(
     val id: String = newId(),
     val title: String,
-    /** The day it starts (the first day, for a repeating event). */
+    /** The day it starts (the first day, for a repeating event), in its [zone]. */
     val date: LocalDate,
     /** The day it ends, for events over several days. Never before [date]. */
     val endDate: LocalDate = date,
     /** Null for an all-day event. */
     val start: LocalTime? = null,
     val end: LocalTime? = null,
+    /** The time zone its times are in; null means wherever the phone is. */
+    val zone: String? = null,
     val location: String = "",
     val notes: String = "",
     val calendarId: String = DEFAULT_CALENDAR_ID,
-    val repeat: Repeat = Repeat.NONE,
-    /** The last day a repeating event can start on; null repeats forever. */
-    val repeatUntil: LocalDate? = null,
-    /** Minutes before the start; null for no reminder. */
-    val reminder: Int? = 10,
-    /** Days a repeating event was deleted on, one at a time. */
+    /** Its own colour, instead of its calendar's. */
+    val color: Int? = null,
+    val rule: Rule? = null,
+    /** Minutes before the start for each notification (for all-day events, before [Settings.allDayReminderAt] on the day). */
+    val reminders: List<Int> = listOf(10),
+    /** Days a repeating event was deleted (or moved out as an event of its own) on. */
     val skipped: List<LocalDate> = emptyList(),
+    /** Email addresses of people invited. Invitations go out as .ics files by email. */
+    val guests: List<String> = emptyList(),
+    val availability: Availability = Availability.BUSY,
     val createdAt: Long = System.currentTimeMillis(),
 ) {
     val allDay: Boolean get() = start == null
 
     /** Extra days after the first that each occurrence lasts: 0 for a one-day event. */
     val spanDays: Long get() = java.time.temporal.ChronoUnit.DAYS.between(date, endDate).coerceAtLeast(0)
+
+    val zoneId: ZoneId? get() = zone?.let { runCatching { ZoneId.of(it) }.getOrNull() }
 
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -114,13 +129,16 @@ data class Event(
         .put("endDate", endDate.toString())
         .put("start", start?.toString() ?: "")
         .put("end", end?.toString() ?: "")
+        .put("zone", zone ?: "")
         .put("location", location)
         .put("notes", notes)
         .put("calendarId", calendarId)
-        .put("repeat", repeat.name)
-        .put("repeatUntil", repeatUntil?.toString() ?: "")
-        .put("reminder", reminder ?: -1)
+        .put("color", color ?: 0)
+        .put("rule", rule?.toJson() ?: JSONObject.NULL)
+        .put("reminders", JSONArray(reminders))
         .put("skipped", JSONArray(skipped.map { it.toString() }))
+        .put("guests", JSONArray(guests))
+        .put("availability", availability.name)
         .put("createdAt", createdAt)
 
     companion object {
@@ -128,6 +146,13 @@ data class Event(
             val date = o.optString("date").takeIf { it.isNotEmpty() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return null
             val endDate = o.optString("endDate").takeIf { it.isNotEmpty() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
             val start = o.optString("start").takeIf { it.isNotEmpty() }?.let { runCatching { LocalTime.parse(it) }.getOrNull() }
+            val until = o.optString("repeatUntil").takeIf { it.isNotEmpty() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            // Dayline 1 had a simple repeat and one reminder (-1 for none).
+            val reminders = when {
+                o.has("reminders") -> o.optJSONArray("reminders")?.let { a -> List(a.length()) { a.optInt(it, -1) } }.orEmpty().filter { it >= 0 }.distinct().sorted()
+                o.has("reminder") -> listOf(o.optInt("reminder", 10)).filter { it >= 0 }
+                else -> listOf(10)
+            }
             return Event(
                 id = o.optString("id").ifEmpty { newId() },
                 title = o.optString("title"),
@@ -135,13 +160,16 @@ data class Event(
                 endDate = endDate?.takeIf { !it.isBefore(date) } ?: date,
                 start = start,
                 end = if (start == null) null else o.optString("end").takeIf { it.isNotEmpty() }?.let { runCatching { LocalTime.parse(it) }.getOrNull() },
+                zone = o.optString("zone").takeIf { it.isNotEmpty() && runCatching { ZoneId.of(it) }.isSuccess },
                 location = o.optString("location"),
                 notes = o.optString("notes"),
                 calendarId = o.optString("calendarId").ifEmpty { DEFAULT_CALENDAR_ID },
-                repeat = runCatching { Repeat.valueOf(o.optString("repeat")) }.getOrDefault(Repeat.NONE),
-                repeatUntil = o.optString("repeatUntil").takeIf { it.isNotEmpty() }?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
-                reminder = o.optInt("reminder", 10).takeIf { it >= 0 },
+                color = o.optInt("color", 0).takeIf { it != 0 },
+                rule = Rule.fromJson(o.optJSONObject("rule")) ?: Rule.fromLegacy(o.optString("repeat"), until, date),
+                reminders = reminders,
                 skipped = o.optJSONArray("skipped").strings().mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() },
+                guests = o.optJSONArray("guests").strings(),
+                availability = runCatching { Availability.valueOf(o.optString("availability")) }.getOrDefault(Availability.BUSY),
                 createdAt = o.optLong("createdAt", System.currentTimeMillis()),
             )
         }
@@ -150,31 +178,65 @@ data class Event(
 
 enum class ThemeMode(val label: String) { SYSTEM("System default"), LIGHT("Light"), DARK("Dark") }
 
+/** The views, as in Google Calendar. */
+enum class CalendarView(val label: String, val days: Int) {
+    SCHEDULE("Schedule", 0), DAY("Day", 1), THREE_DAYS("3 days", 3), WEEK("Week", 7), MONTH("Month", 0),
+}
+
 data class Settings(
     val theme: ThemeMode = ThemeMode.SYSTEM,
     val weekStartsSunday: Boolean = false,
     val reminders: Boolean = true,
-    /** The reminder new events start with. */
-    val defaultReminder: Int? = 10,
+    /** Notifications new timed events start with, in minutes before. */
+    val defaultReminders: List<Int> = listOf(10),
+    /** Notifications new all-day events start with, in minutes before [allDayReminderAt] on the day. */
+    val defaultAllDayReminders: List<Int> = listOf(0),
+    /** The time of day all-day events' notifications are counted from. */
+    val allDayReminderAt: LocalTime = LocalTime.of(9, 0),
+    /** How long new events last, in minutes. */
+    val defaultDuration: Int = 60,
+    val view: CalendarView = CalendarView.MONTH,
+    val showWeekNumbers: Boolean = false,
+    val showWeekends: Boolean = true,
+    /** A second time zone shown beside the hours in day and week views. */
+    val secondZone: String? = null,
     /** Dayline has asked once for permission to post notifications. */
     val askedNotifications: Boolean = false,
 ) {
+    /** Kept for Dayline 1's single default reminder (first of [defaultReminders]). */
+    val defaultReminder: Int? get() = defaultReminders.firstOrNull()
+
     fun toJson(): JSONObject = JSONObject()
         .put("theme", theme.name)
         .put("weekStartsSunday", weekStartsSunday)
         .put("reminders", reminders)
-        .put("defaultReminder", defaultReminder ?: -1)
+        .put("defaultReminders", JSONArray(defaultReminders))
+        .put("defaultAllDayReminders", JSONArray(defaultAllDayReminders))
+        .put("allDayReminderAt", allDayReminderAt.toString())
+        .put("defaultDuration", defaultDuration)
+        .put("view", view.name)
+        .put("showWeekNumbers", showWeekNumbers)
+        .put("showWeekends", showWeekends)
+        .put("secondZone", secondZone ?: "")
         .put("askedNotifications", askedNotifications)
 
     companion object {
         fun fromJson(o: JSONObject?): Settings {
             val d = Settings()
             if (o == null) return d
+            fun ints(key: String) = o.optJSONArray(key)?.let { a -> List(a.length()) { a.optInt(it, -1) } }?.filter { it >= 0 }
             return Settings(
                 theme = runCatching { ThemeMode.valueOf(o.optString("theme")) }.getOrDefault(d.theme),
                 weekStartsSunday = o.optBoolean("weekStartsSunday", d.weekStartsSunday),
                 reminders = o.optBoolean("reminders", d.reminders),
-                defaultReminder = o.optInt("defaultReminder", 10).takeIf { it >= 0 },
+                defaultReminders = ints("defaultReminders") ?: if (o.has("defaultReminder")) listOf(o.optInt("defaultReminder", 10)).filter { it >= 0 } else d.defaultReminders,
+                defaultAllDayReminders = ints("defaultAllDayReminders") ?: d.defaultAllDayReminders,
+                allDayReminderAt = o.optString("allDayReminderAt").takeIf { it.isNotEmpty() }?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: d.allDayReminderAt,
+                defaultDuration = o.optInt("defaultDuration", d.defaultDuration).coerceIn(5, 24 * 60),
+                view = runCatching { CalendarView.valueOf(o.optString("view")) }.getOrDefault(d.view),
+                showWeekNumbers = o.optBoolean("showWeekNumbers", d.showWeekNumbers),
+                showWeekends = o.optBoolean("showWeekends", d.showWeekends),
+                secondZone = o.optString("secondZone").takeIf { it.isNotEmpty() && runCatching { ZoneId.of(it) }.isSuccess },
                 askedNotifications = o.optBoolean("askedNotifications", d.askedNotifications),
             )
         }
@@ -194,6 +256,9 @@ data class Data(
 
     fun event(id: String?): Event? = events.firstOrNull { it.id == id }
 
+    /** The colour an event shows in: its own, or its calendar's. */
+    fun colorOf(e: Event): Int = e.color ?: calendar(e.calendarId).color
+
     /** Events on calendars that are switched on. */
     val visibleEvents: List<Event>
         get() {
@@ -202,7 +267,7 @@ data class Data(
         }
 
     fun toJson(): JSONObject = JSONObject()
-        .put("version", 1)
+        .put("version", 2)
         .put("events", JSONArray(events.map { it.toJson() }))
         .put("calendars", JSONArray(calendars.map { it.toJson() }))
         .put("settings", settings.toJson())
@@ -225,8 +290,8 @@ data class Data(
     }
 }
 
-private fun JSONArray?.objects(): List<JSONObject> =
-    if (this == null) emptyList() else List(length()) { getJSONObject(it) }
+internal fun JSONArray?.objects(): List<JSONObject> =
+    if (this == null) emptyList() else List(length()) { opt(it) }.filterIsInstance<JSONObject>()
 
-private fun JSONArray?.strings(): List<String> =
-    if (this == null) emptyList() else List(length()) { getString(it) }.filter { it.isNotBlank() }
+internal fun JSONArray?.strings(): List<String> =
+    if (this == null) emptyList() else List(length()) { optString(it) }.filter { it.isNotBlank() }

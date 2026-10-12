@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs inside the Android emulator job: adds an event in plain words, makes it repeat weekly,
-# adds an all-day event, deletes one occurrence, adds a calendar, searches, and switches to the dark theme.
+# adds an all-day event, deletes one occurrence, tries the week view, adds a calendar, searches, and switches to the dark theme.
 # Usage: smoke-test.sh <apk> <output dir>
 set -euo pipefail
 
@@ -98,23 +98,23 @@ grep -Eq '1:00 PM – 2:00 PM|13:00 – 14:00' "$OUT/month-saved.xml" || fail "t
 shot 3-month-event
 echo "PASS: plain-words event"
 
-echo "--- Agenda, and making it repeat"
-tap month-saved "Agenda" last
-wait_for agenda 'text="Team lunch"' 10 "the event isn't in the agenda"
+echo "--- Schedule, and making it repeat"
+tap month-saved "Schedule" last
+wait_for agenda 'text="Team lunch"' 10 "the event isn't in the schedule"
 shot 4-agenda
 tap agenda "Team lunch"
 wait_for edit 'content-desc="Delete event"' 10 "the event didn't open"
-tap edit "Doesn't repeat"
+tap edit "Does not repeat"
 sleep 1
 dump repeat-menu
-tap repeat-menu "Every week"
+tap repeat-menu "Weekly on"
 sleep 1
 dump edit-weekly
-grep -q 'text="Repeats forever"' "$OUT/edit-weekly.xml" || fail "the event didn't become weekly"
+grep -q 'text="Weekly on ' "$OUT/edit-weekly.xml" || fail "the event didn't become weekly"
 shot 5-edit-weekly
 tap edit-weekly "Save"
-wait_for agenda-weekly 'text="Team lunch"' 10 "back on the agenda, the event is gone"
-[ "$(count agenda-weekly 'text="Team lunch"')" -ge 2 ] || fail "a weekly event shows only once in the agenda"
+wait_for agenda-weekly 'text="Team lunch"' 10 "back on the schedule, the event is gone"
+[ "$(count agenda-weekly 'text="Team lunch"')" -ge 2 ] || fail "a weekly event shows only once in the schedule"
 shot 6-agenda-weekly
 echo "PASS: repeating events"
 
@@ -131,7 +131,7 @@ tap allday-typed "All day"
 sleep 1
 dump allday-on
 tap allday-on "Save"
-wait_for agenda-holiday 'text="Holiday"' 10 "the all-day event isn't in the agenda"
+wait_for agenda-holiday 'text="Holiday"' 10 "the all-day event isn't in the schedule"
 grep -q 'text="All day"' "$OUT/agenda-holiday.xml" || fail "the holiday isn't shown as all day"
 shot 7-all-day
 echo "PASS: all-day events"
@@ -143,12 +143,30 @@ tap delete-open "Delete event"
 wait_for delete-dialog 'text="This event"' 10 "no choice of what to delete"
 shot 8-delete-choice
 tap delete-dialog "This event"
+sleep 1
+dump delete-chosen
+tap delete-chosen "OK"
 wait_for agenda-deleted 'text="Deleted on' 10 "no message after deleting one occurrence"
 echo "PASS: deleting one occurrence"
 
-echo "--- Next month"
+echo "--- Week view"
 dump before-month
-tap before-month "Month" last
+tap before-month "Calendar" last
+wait_for month-back 'content-desc="View: Month"' 10 "the Calendar tab doesn't show the month"
+tap month-back "View: Month"
+sleep 1
+dump view-menu
+tap view-menu "Week"
+wait_for week 'content-desc="View: Week"' 10 "the week view didn't open"
+grep -q 'content-desc="Previous"' "$OUT/week.xml" || fail "the week view has no Previous button"
+shot 9-week
+tap week "View: Week"
+sleep 1
+dump view-menu-2
+tap view-menu-2 "Month"
+echo "PASS: week view"
+
+echo "--- Next month"
 wait_for month-2 'content-desc="Next month"' 10 "the month view didn't come back"
 before=$(grep -o 'content-desc="Showing [^"]*"' "$OUT/month-2.xml" | head -1)
 tap month-2 "Next month"
@@ -156,12 +174,13 @@ sleep 1
 dump month-next
 after=$(grep -o 'content-desc="Showing [^"]*"' "$OUT/month-next.xml" | head -1)
 [ -n "$after" ] && [ "$before" != "$after" ] || fail "Next month didn't change the month ($before → $after)"
-shot 9-next-month
+shot 9b-next-month
 echo "PASS: changing month"
 
 echo "--- Calendars"
 tap month-next "Calendars" last
 wait_for calendars 'content-desc="Add calendar"' 10 "the Calendars tab has no Add calendar button"
+grep -q 'text="Import events"' "$OUT/calendars.xml" || fail "the Calendars tab has no way to import .ics files"
 tap calendars "Add calendar"
 sleep 2
 adb shell input text "Gym"
@@ -191,9 +210,9 @@ sleep 1
 adb shell input keyevent KEYCODE_BACK
 sleep 1
 dump calendars-dark
-tap calendars-dark "Agenda" last
+tap calendars-dark "Schedule" last
 sleep 2
-shot 12-agenda-dark
+shot 12-schedule-dark
 echo "PASS: dark theme"
 
 if adb logcat -d | grep -q "FATAL EXCEPTION"; then

@@ -1,5 +1,7 @@
 package io.github.akrishna87.dayline.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -16,17 +18,26 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Directions
 import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Schedule
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.rounded.Work
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,27 +56,36 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import io.github.akrishna87.dayline.Scope
+import io.github.akrishna87.dayline.Sharing
 import io.github.akrishna87.dayline.Store
+import io.github.akrishna87.dayline.model.Availability
+import io.github.akrishna87.dayline.model.CalendarColors
 import io.github.akrishna87.dayline.model.Data
 import io.github.akrishna87.dayline.model.Dates
 import io.github.akrishna87.dayline.model.Event
 import io.github.akrishna87.dayline.model.QuickEvent
 import io.github.akrishna87.dayline.model.ReminderChoices
-import io.github.akrishna87.dayline.model.Repeat
+import io.github.akrishna87.dayline.model.newId
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
-private enum class Picking { START_DATE, START_TIME, END_DATE, END_TIME, UNTIL }
+private enum class Picking { START_DATE, START_TIME, END_DATE, END_TIME }
 
 /**
- * Makes or changes an event. Going back saves it. For a new event, dates, times, a repeat and a
- * #calendar typed in the title are understood ("Lunch with Sam friday 1pm") until a field is
+ * Makes or changes an event. Going back saves it; for a repeating event Google Calendar's question
+ * comes first (this event, this and following, or all). For a new event, dates, times, a repeat
+ * and a #calendar typed in the title are understood ("Lunch with Sam friday 1pm") until a field is
  * changed by hand.
  */
 @Composable
@@ -74,25 +94,32 @@ fun EventPage(page: Page.EventPage, data: Data) {
     val clock = LocalClock.current
     val messages = LocalMessages.current
     val askNotifications = LocalAskNotifications.current
+    val context = LocalContext.current
     // The event as it was when the page opened; edits stay on this page until it's saved.
     val original = remember(page.id) { data.event(page.id) }
     if (!page.isNew && original == null) {
         LaunchedEffect(Unit) { nav.pop() }
         return
     }
+    // The occurrence being edited (for a repeating event, the one that was tapped).
+    val day = page.day ?: original?.date
     val initial = remember(page.id) {
-        original ?: run {
-            val day = page.startDay ?: clock.today
-            val start = if (day == clock.today) Dates.nextHour(clock.now.toLocalTime()) else LocalTime.of(9, 0)
-            Event(
-                id = page.id,
-                title = "",
-                date = day,
-                start = start,
-                end = Dates.defaultEnd(start),
-                calendarId = data.allCalendars.first().id,
-                reminder = data.settings.defaultReminder,
-            )
+        val o = original
+        when {
+            o != null -> {
+                val d = day ?: o.date
+                o.copy(date = d, endDate = d.plusDays(o.spanDays))
+            }
+            page.template != null -> page.template.copy(id = page.id)
+            else -> {
+                val d = page.startDay ?: clock.today
+                val start = page.startTime ?: if (d == clock.today) Dates.nextHour(clock.now.toLocalTime()) else LocalTime.of(9, 0)
+                val end = start.plusMinutes(data.settings.defaultDuration.toLong()).let { if (it.isBefore(start)) LocalTime.of(23, 59) else it }
+                Event(
+                    id = page.id, title = "", date = d, start = start, end = end,
+                    calendarId = data.allCalendars.first().id, reminders = data.settings.defaultReminders,
+                )
+            }
         }
     }
 
@@ -101,25 +128,34 @@ fun EventPage(page: Page.EventPage, data: Data) {
     var endDate by remember { mutableStateOf(initial.endDate) }
     var start by remember { mutableStateOf(initial.start) }
     var end by remember { mutableStateOf(initial.end) }
-    var repeat by remember { mutableStateOf(initial.repeat) }
-    var repeatUntil by remember { mutableStateOf(initial.repeatUntil) }
-    var reminder by remember { mutableStateOf(initial.reminder) }
+    var zone by remember { mutableStateOf(initial.zone) }
+    var rule by remember { mutableStateOf(initial.rule) }
+    var reminders by remember { mutableStateOf(initial.reminders) }
     var calendarId by remember { mutableStateOf(initial.calendarId) }
+    var color by remember { mutableStateOf(initial.color) }
+    var availability by remember { mutableStateOf(initial.availability) }
+    var guests by remember { mutableStateOf(initial.guests) }
+    var guestDraft by remember { mutableStateOf(TextFieldValue("")) }
     var location by remember { mutableStateOf(TextFieldValue(initial.location)) }
     var notes by remember { mutableStateOf(TextFieldValue(initial.notes)) }
     // The time an all-day event goes back to when "All day" is switched off.
     var lastStart by remember { mutableStateOf(initial.start ?: LocalTime.of(9, 0)) }
-    var byHand by remember { mutableStateOf(!page.isNew) }
+    var byHand by remember { mutableStateOf(!page.isNew || page.template != null) }
 
     var picking by remember { mutableStateOf<Picking?>(null) }
     var repeatMenu by remember { mutableStateOf(false) }
+    var customRepeat by remember { mutableStateOf(false) }
     var reminderMenu by remember { mutableStateOf(false) }
     var calendarMenu by remember { mutableStateOf(false) }
+    var colorMenu by remember { mutableStateOf(false) }
+    var zonePicking by remember { mutableStateOf(false) }
+    var moreMenu by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    var askingScope by remember { mutableStateOf<Event?>(null) }
     val titleFocus = remember { FocusRequester() }
     LaunchedEffect(page.id) {
         // A new event opens ready to type its title.
-        if (page.isNew) runCatching { titleFocus.requestFocus() }
+        if (page.isNew && page.template == null) runCatching { titleFocus.requestFocus() }
     }
 
     // What the title says, while it still decides the date and time.
@@ -129,10 +165,10 @@ fun EventPage(page: Page.EventPage, data: Data) {
     val effStart = parsed?.start ?: start
     val effEnd = when {
         parsed?.end != null -> parsed.end
-        parsed?.start != null -> Dates.defaultEnd(parsed.start)
+        parsed?.start != null -> parsed.start.plusMinutes(data.settings.defaultDuration.toLong()).let { if (it.isBefore(parsed.start)) LocalTime.of(23, 59) else it }
         else -> end
     }
-    val effRepeat = parsed?.repeat ?: repeat
+    val effRule = parsed?.repeat ?: rule
     val effCalendar = parsed?.calendarId ?: calendarId
     val effTitle = parsed?.title ?: title.text
 
@@ -145,7 +181,7 @@ fun EventPage(page: Page.EventPage, data: Data) {
             endDate = effEndDate
             start = effStart
             end = effEnd
-            repeat = effRepeat
+            rule = effRule
             calendarId = effCalendar
         }
         byHand = true
@@ -155,19 +191,29 @@ fun EventPage(page: Page.EventPage, data: Data) {
         val s = effStart
         var e = effEnd
         if (s != null && (e == null || (effEndDate == effDate && !e.isAfter(s)))) e = Dates.defaultEnd(s)
+        val pendingGuest = guestDraft.text.trim().takeIf { it.contains('@') }
         return (original ?: initial).copy(
             title = effTitle.trim(),
             date = effDate,
             endDate = effEndDate,
             start = s,
             end = if (s == null) null else e,
-            repeat = effRepeat,
-            repeatUntil = if (effRepeat == Repeat.NONE) null else repeatUntil?.takeIf { !it.isBefore(effDate) },
-            reminder = reminder,
+            zone = if (s == null) null else zone,
+            rule = effRule?.let { r -> if (r.until != null && r.until.isBefore(effDate)) r.copy(until = effDate) else r },
+            reminders = reminders.distinct().sorted(),
             calendarId = effCalendar,
+            color = color,
+            availability = availability,
+            guests = (guests + listOfNotNull(pendingGuest)).distinct(),
             location = location.text.trim(),
             notes = notes.text.trim(),
         )
+    }
+
+    fun finish(event: Event) {
+        if (event.reminders.isNotEmpty() && Store.data.value.settings.reminders) askNotifications()
+        if (page.isNew) nav.select(event.date)
+        nav.pop()
     }
 
     fun saveAndClose() {
@@ -177,23 +223,52 @@ fun EventPage(page: Page.EventPage, data: Data) {
             nav.pop()
             return
         }
-        if (event != original) {
+        val o = original
+        if (o == null) {
             Store.saveEvent(event)
-            if (event.reminder != null && Store.data.value.settings.reminders) askNotifications()
+            finish(event)
+            return
         }
-        if (page.isNew) {
-            nav.selected = event.date
-            nav.month = java.time.YearMonth.from(event.date)
+        val unchanged = event == o.copy(date = event.date, endDate = event.date.plusDays(o.spanDays)) && event.date == (day ?: o.date)
+        if (unchanged) {
+            nav.pop()
+            return
         }
-        nav.pop()
+        if (o.rule != null) {
+            askingScope = event
+        } else {
+            Store.saveEvent(event)
+            finish(event)
+        }
     }
 
-    BackHandler { saveAndClose() }
+    BackHandler(enabled = askingScope == null && !deleting) { saveAndClose() }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
         PageBar(onBack = ::saveAndClose) {
             if (!page.isNew) {
                 IconButton(onClick = { deleting = true }, Modifier.semantics { contentDescription = "Delete event" }) { Icon(Icons.Rounded.Delete, null) }
+            }
+            Box {
+                IconButton(onClick = { moreMenu = true }, Modifier.semantics { contentDescription = "Event options" }) { Icon(Icons.Rounded.MoreVert, null) }
+                DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
+                    DropdownMenuItem(text = { Text("Duplicate") }, onClick = {
+                        moreMenu = false
+                        val copy = build().copy(id = newId(), skipped = emptyList(), createdAt = System.currentTimeMillis())
+                        nav.pop()
+                        nav.push(Page.EventPage(copy.id, null, isNew = true, template = copy))
+                    })
+                    DropdownMenuItem(text = { Text("Share as a file (.ics)") }, onClick = {
+                        moreMenu = false
+                        if (!Sharing.shareIcs(context, listOf(build()), build().title.ifBlank { "event" })) messages.show("No app to share with")
+                    })
+                    if (guests.isNotEmpty()) {
+                        DropdownMenuItem(text = { Text("Email guests an invitation") }, onClick = {
+                            moreMenu = false
+                            if (!Sharing.emailInvitation(context, build())) messages.show("No email app found")
+                        })
+                    }
+                }
             }
             TextButton(onClick = ::saveAndClose, Modifier.padding(end = 4.dp)) { Text("Save") }
         }
@@ -208,7 +283,7 @@ fun EventPage(page: Page.EventPage, data: Data) {
             )
             if (!byHand) {
                 Text(
-                    if (parsed != null && parsed.title != title.text.trim()) "Understood: ${understood(effDate, effStart, effRepeat, clock.today, clock.is24Hour)}"
+                    if (parsed != null && parsed.title != title.text.trim()) "Understood: ${understood(effDate, effStart, effRule?.label(effDate), clock.today, clock.is24Hour)}"
                     else "Try “Lunch with Sam friday 1pm” or “Standup every weekday 9:30am”",
                     Modifier.padding(start = 64.dp, end = 20.dp, bottom = 8.dp),
                     style = MaterialTheme.typography.bodySmall,
@@ -223,10 +298,12 @@ fun EventPage(page: Page.EventPage, data: Data) {
                 if (allDay) {
                     start = lastStart
                     end = Dates.defaultEnd(lastStart)
+                    reminders = data.settings.defaultReminders
                 } else {
                     lastStart = start ?: lastStart
                     start = null
                     end = null
+                    reminders = data.settings.defaultAllDayReminders
                 }
             }, description = "All day") {
                 Text("All day", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
@@ -239,11 +316,7 @@ fun EventPage(page: Page.EventPage, data: Data) {
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 if (effStart != null) {
-                    Text(
-                        Dates.timeFormatter(clock.is24Hour).format(effStart),
-                        Modifier.clickable { takeOver(); picking = Picking.START_TIME },
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
+                    Text(Dates.timeFormatter(clock.is24Hour).format(effStart), Modifier.clickable { takeOver(); picking = Picking.START_TIME }, style = MaterialTheme.typography.bodyLarge)
                 }
             }
             FieldRow(null) {
@@ -254,42 +327,79 @@ fun EventPage(page: Page.EventPage, data: Data) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (effStart != null && effEnd != null) {
-                    Text(
-                        Dates.timeFormatter(clock.is24Hour).format(effEnd),
-                        Modifier.clickable { takeOver(); picking = Picking.END_TIME },
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Text(Dates.timeFormatter(clock.is24Hour).format(effEnd), Modifier.clickable { takeOver(); picking = Picking.END_TIME },
+                        style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+            if (!allDay) {
+                FieldRow(Icons.Rounded.Language, onClick = { takeOver(); zonePicking = true }) {
+                    Text((zone ?: ZoneId.systemDefault().id).replace('_', ' ') + if (zone == null) " (phone)" else "", style = MaterialTheme.typography.bodyLarge,
+                        color = if (zone == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+                }
+            }
+            Box {
+                FieldRow(Icons.Rounded.Repeat, onClick = { takeOver(); repeatMenu = true }) {
+                    Text(effRule?.label(effDate) ?: "Does not repeat", style = MaterialTheme.typography.bodyLarge)
+                }
+                RepeatMenu(repeatMenu, effRule, effDate, { repeatMenu = false }, onCustom = { customRepeat = true }) { rule = it }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            Box {
-                FieldRow(Icons.Rounded.Repeat, onClick = { takeOver(); repeatMenu = true }) {
-                    Text(effRepeat.label, style = MaterialTheme.typography.bodyLarge)
+            // Notifications: each with a remove button, then a row to add one.
+            for (m in reminders.sorted()) {
+                FieldRow(Icons.Rounded.Notifications, description = "Notification " + ReminderChoices.label(m)) {
+                    Text(if (allDay) ReminderChoices.allDayLabel(m, data.settings.allDayReminderAt) else ReminderChoices.label(m), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                    IconButton(onClick = { reminders = reminders - m }, Modifier.size(32.dp).semantics { contentDescription = "Remove notification" }) { Icon(Icons.Rounded.Close, null, Modifier.size(18.dp)) }
                 }
-                RepeatMenu(repeatMenu, effRepeat, { repeatMenu = false }) { repeat = it }
             }
-            if (effRepeat != Repeat.NONE) {
-                FieldRow(null, onClick = { picking = Picking.UNTIL }) {
-                    Text(
-                        repeatUntil?.let { "Until ${Dates.fieldDate(it, clock.today)}" } ?: "Repeats forever",
-                        Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (repeatUntil != null) {
-                        IconButton(onClick = { repeatUntil = null }, Modifier.size(32.dp).semantics { contentDescription = "Repeat forever" }) {
-                            Icon(Icons.Rounded.Close, null, Modifier.size(18.dp))
+            Box {
+                FieldRow(if (reminders.isEmpty()) Icons.Rounded.Notifications else null, onClick = { reminderMenu = true }) {
+                    Text("Add notification", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                ReminderMenu(reminderMenu, reminders, allDay, data.settings.allDayReminderAt, { reminderMenu = false }) { m -> reminders = reminders + m }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            // Guests.
+            for (g in guests) {
+                FieldRow(Icons.Rounded.People, description = "Guest $g") {
+                    Text(g, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                    IconButton(onClick = { guests = guests - g }, Modifier.size(32.dp).semantics { contentDescription = "Remove $g" }) { Icon(Icons.Rounded.Close, null, Modifier.size(18.dp)) }
+                }
+            }
+            FieldRow(if (guests.isEmpty()) Icons.Rounded.People else null) {
+                fun addGuest() {
+                    val g = guestDraft.text.trim().trimEnd(',', ';')
+                    if (g.contains('@') && g !in guests) guests = guests + g
+                    guestDraft = TextFieldValue("")
+                }
+                androidx.compose.foundation.text.BasicTextField(
+                    value = guestDraft,
+                    onValueChange = { v -> if (v.text.endsWith(",") || v.text.endsWith(" ")) { guestDraft = v; addGuest() } else guestDraft = v },
+                    modifier = Modifier.weight(1f).semantics { contentDescription = "Add guests" },
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { addGuest() }),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
+                    decorationBox = { inner ->
+                        Box {
+                            if (guestDraft.text.isEmpty()) Text("Add guests (email)", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.outline)
+                            inner()
                         }
-                    }
-                }
+                    },
+                )
             }
-            Box {
-                FieldRow(Icons.Rounded.Notifications, onClick = { reminderMenu = true }) {
-                    Text(ReminderChoices.label(reminder), style = MaterialTheme.typography.bodyLarge)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            FieldRow(Icons.Rounded.Place) {
+                PlainField(location, { location = it }, "Add location", "Location", MaterialTheme.typography.bodyLarge, Modifier.weight(1f), singleLine = true)
+                if (location.text.isNotBlank()) {
+                    IconButton(onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(location.text.trim())))) }
+                            .onFailure { messages.show("No maps app found") }
+                    }, Modifier.size(36.dp).semantics { contentDescription = "Open in maps" }) { Icon(Icons.Rounded.Directions, null) }
                 }
-                ReminderMenu(reminderMenu, reminder, { reminderMenu = false }) { reminder = it }
             }
             Box {
                 val cal = data.calendar(effCalendar)
@@ -300,12 +410,21 @@ fun EventPage(page: Page.EventPage, data: Data) {
                 }
                 CalendarMenu(calendarMenu, data.allCalendars, effCalendar, { calendarMenu = false }) { calendarId = it }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            FieldRow(Icons.Rounded.Place) {
-                PlainField(location, { location = it }, "Add location", "Location", MaterialTheme.typography.bodyLarge, singleLine = true)
+            Box {
+                val calColor = data.calendar(effCalendar).color
+                FieldRow(Icons.Rounded.Palette, onClick = { colorMenu = true }, description = "Colour") {
+                    ColorDot(color ?: calColor, 14.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(color?.let { CalendarColors.name(it) ?: "Custom" } ?: "Calendar colour", style = MaterialTheme.typography.bodyLarge)
+                }
+                EventColorMenu(colorMenu, color, calColor, { colorMenu = false }) { color = it }
             }
+            FieldRow(Icons.Rounded.Work, onClick = { availability = if (availability == Availability.BUSY) Availability.FREE else Availability.BUSY }, description = "Show as") {
+                Text(if (availability == Availability.BUSY) "Busy" else "Free", style = MaterialTheme.typography.bodyLarge)
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             FieldRow(Icons.AutoMirrored.Rounded.Notes) {
-                PlainField(notes, { notes = it }, "Add notes", "Notes", MaterialTheme.typography.bodyLarge, Modifier.heightIn(min = 72.dp))
+                PlainField(notes, { notes = it }, "Add description", "Notes", MaterialTheme.typography.bodyLarge, Modifier.heightIn(min = 72.dp))
             }
             Spacer(Modifier.heightIn(min = 48.dp))
         }
@@ -332,17 +451,27 @@ fun EventPage(page: Page.EventPage, data: Data) {
             lastStart = t
         }) { picking = null }
         Picking.END_TIME -> TimePickDialog(end ?: Dates.defaultEnd(start ?: lastStart), clock.is24Hour, { t -> end = t }) { picking = null }
-        Picking.UNTIL -> DatePickDialog(repeatUntil ?: effDate.plusMonths(3), { d -> repeatUntil = if (d.isBefore(effDate)) effDate else d }) { picking = null }
         null -> {}
+    }
+    if (customRepeat) RuleDialog(effRule, effDate, onDone = { rule = it }, onDismiss = { customRepeat = false })
+    if (zonePicking) ZoneDialog(zone, onPick = { zone = it }, onDismiss = { zonePicking = false })
+
+    askingScope?.let { event ->
+        val o = original!!
+        ScopeDialog("Save recurring event", onPick = { scope ->
+            val split = Store.saveOccurrence(o, day ?: o.date, event, scope)
+            messages.offerUndo("Event saved") { Store.restoreEvent(o, split) }
+            finish(event)
+        }, onDismiss = { askingScope = null })
     }
 
     if (deleting && original != null) {
-        val day = page.day ?: original.date
+        val d = day ?: original.date
         fun deleted(text: String) {
             messages.offerUndo(text) { Store.restoreEvent(original) }
             nav.pop()
         }
-        if (original.repeat == Repeat.NONE) {
+        if (original.rule == null) {
             ConfirmDialog(
                 "Delete this event?",
                 "“${original.title.ifBlank { "(No title)" }}” is deleted.",
@@ -354,31 +483,13 @@ fun EventPage(page: Page.EventPage, data: Data) {
                 onDismiss = { deleting = false },
             )
         } else {
-            AlertDialog(
-                onDismissRequest = { deleting = false },
-                title = { Text("Delete repeating event") },
-                text = {
-                    Column {
-                        TextButton(onClick = {
-                            deleting = false
-                            Store.skipOccurrence(original.id, day)
-                            deleted("Deleted on ${Dates.dayLabel(day, clock.today)}")
-                        }) { Text("This event") }
-                        TextButton(onClick = {
-                            deleting = false
-                            Store.endRepeatBefore(original.id, day)
-                            deleted("Deleted from ${Dates.dayLabel(day, clock.today)} on")
-                        }) { Text("This and following events") }
-                        TextButton(onClick = {
-                            deleting = false
-                            Store.deleteEvent(original.id)
-                            deleted("Event deleted")
-                        }) { Text("All events") }
-                    }
-                },
-                confirmButton = {},
-                dismissButton = { TextButton(onClick = { deleting = false }) { Text("Cancel") } },
-            )
+            ScopeDialog("Delete recurring event", onPick = { scope ->
+                when (scope) {
+                    Scope.THIS -> { Store.skipOccurrence(original.id, d); deleted("Deleted on ${Dates.dayLabel(d, clock.today)}") }
+                    Scope.FOLLOWING -> { Store.endRepeatBefore(original.id, d); deleted("Deleted from ${Dates.dayLabel(d, clock.today)} on") }
+                    Scope.ALL -> { Store.deleteEvent(original.id); deleted("Event deleted") }
+                }
+            }, onDismiss = { deleting = false })
         }
     }
 }
@@ -402,10 +513,10 @@ private fun FieldRow(icon: ImageVector?, onClick: (() -> Unit)? = null, descript
     }
 }
 
-/** "Fri 16 Oct, 13:00, every week": what was read from the title. */
-private fun understood(date: LocalDate, start: LocalTime?, repeat: Repeat, today: LocalDate, is24Hour: Boolean): String =
+/** "Fri 16 Oct, 13:00, weekly on Fri": what was read from the title. */
+private fun understood(date: LocalDate, start: LocalTime?, repeat: String?, today: LocalDate, is24Hour: Boolean): String =
     listOfNotNull(
         Dates.dayLabel(date, today),
         start?.let { Dates.timeFormatter(is24Hour).format(it) },
-        repeat.takeIf { it != Repeat.NONE }?.label?.lowercase(),
+        repeat?.replaceFirstChar { it.lowercase() },
     ).joinToString(", ")

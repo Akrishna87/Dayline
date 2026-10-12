@@ -59,6 +59,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.akrishna87.dayline.LaunchRequest
 import io.github.akrishna87.dayline.MainActivity
 import io.github.akrishna87.dayline.Reminders
 import io.github.akrishna87.dayline.Store
@@ -71,26 +72,46 @@ import java.time.LocalDateTime
 import java.time.YearMonth
 
 enum class Tab(val label: String, val icon: ImageVector) {
-    MONTH("Month", Icons.Rounded.CalendarMonth),
-    AGENDA("Agenda", Icons.Rounded.ViewAgenda),
+    CALENDAR("Calendar", Icons.Rounded.CalendarMonth),
+    SCHEDULE("Schedule", Icons.Rounded.ViewAgenda),
     CALENDARS("Calendars", Icons.Rounded.Layers),
 }
 
 /** Screens that open on top of the tabs. */
 sealed interface Page {
     /** An event, opened at one of its occurrences ([day]); or a new one when [isNew]. */
-    data class EventPage(val id: String, val day: LocalDate?, val isNew: Boolean = false, val startDay: LocalDate? = null) : Page
+    data class EventPage(
+        val id: String,
+        val day: LocalDate?,
+        val isNew: Boolean = false,
+        val startDay: LocalDate? = null,
+        val startTime: java.time.LocalTime? = null,
+        /** An event to start from (a duplicate, or one read from a file). */
+        val template: io.github.akrishna87.dayline.model.Event? = null,
+    ) : Page
     data object SettingsPage : Page
     data object Search : Page
 }
 
-class Nav {
-    var tab by mutableStateOf(Tab.MONTH)
+class Nav(view: io.github.akrishna87.dayline.model.CalendarView) {
+    var tab by mutableStateOf(Tab.CALENDAR)
     val pages = mutableStateListOf<Page>()
 
-    /** The day picked in the month view; new events start on it. */
+    /** Day, 3 days, week or month on the Calendar tab. */
+    var view by mutableStateOf(if (view in GRID_VIEWS) view else io.github.akrishna87.dayline.model.CalendarView.MONTH)
+
+    /** The day picked in the calendar; new events start on it. */
     var selected by mutableStateOf(LocalDate.now())
     var month by mutableStateOf(YearMonth.now())
+
+    /** Shows [day] (and its month). */
+    fun select(day: LocalDate) {
+        selected = day
+        month = YearMonth.from(day)
+    }
+
+    /** A new event at a tapped time in the day or week view. */
+    fun newEventAt(day: LocalDate, time: java.time.LocalTime) = push(Page.EventPage(io.github.akrishna87.dayline.model.newId(), null, isNew = true, startDay = day, startTime = time))
 
     fun push(page: Page) {
         pages.add(page)
@@ -142,7 +163,7 @@ fun DaylineApp() {
 @Composable
 private fun AppContent(data: Data) {
     val context = LocalContext.current
-    val nav = remember { Nav() }
+    val nav = remember { Nav(Store.data.value.settings.view) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val messages = remember { Messages(scope, snackbar) }
@@ -163,19 +184,30 @@ private fun AppContent(data: Data) {
         }
     }
 
+    var importing by remember { mutableStateOf<List<io.github.akrishna87.dayline.model.Event>?>(null) }
     LaunchedEffect(Unit) {
         MainActivity.launch.collect { request ->
-            if (request != null) {
-                if (Store.data.value.event(request.id) != null) nav.push(Page.EventPage(request.id, request.day))
-                MainActivity.launch.value = null
+            when (request) {
+                is LaunchRequest.OpenEvent -> if (Store.data.value.event(request.id) != null) nav.push(Page.EventPage(request.id, request.day))
+                is LaunchRequest.OpenDay -> { nav.pages.clear(); nav.tab = Tab.CALENDAR; nav.select(request.day) }
+                is LaunchRequest.NewEvent -> nav.newEvent(request.day)
+                is LaunchRequest.ImportIcs -> {
+                    val events = runCatching {
+                        val text = context.contentResolver.openInputStream(request.uri)!!.use { it.readBytes().decodeToString() }
+                        io.github.akrishna87.dayline.model.Ics.import(text, Store.data.value.allCalendars.first().id)
+                    }.getOrNull()
+                    if (events.isNullOrEmpty()) messages.show("No events found in that file") else importing = events
+                }
+                null -> {}
             }
+            if (request != null) MainActivity.launch.value = null
         }
     }
 
     // Pages with something to save (the event editor) handle back themselves; that handler is
     // composed later, so it wins over these.
-    BackHandler(enabled = nav.pages.isNotEmpty() || nav.tab != Tab.MONTH) {
-        if (nav.pages.isNotEmpty()) nav.pop() else nav.tab = Tab.MONTH
+    BackHandler(enabled = nav.pages.isNotEmpty() || nav.tab != Tab.CALENDAR) {
+        if (nav.pages.isNotEmpty()) nav.pop() else nav.tab = Tab.CALENDAR
     }
 
     CompositionLocalProvider(
@@ -190,13 +222,13 @@ private fun AppContent(data: Data) {
                 bottomBar = { BottomBar(nav.tab) { nav.tab = it } },
                 floatingActionButton = {
                     if (nav.tab != Tab.CALENDARS) {
-                        Fab("New event") { nav.newEvent(if (nav.tab == Tab.MONTH) nav.selected else clock.today) }
+                        Fab("New event") { nav.newEvent(if (nav.tab == Tab.CALENDAR) nav.selected else clock.today) }
                     }
                 },
             ) { padding ->
                 when (nav.tab) {
-                    Tab.MONTH -> MonthScreen(data, padding)
-                    Tab.AGENDA -> AgendaScreen(data, padding)
+                    Tab.CALENDAR -> CalendarScreen(data, padding)
+                    Tab.SCHEDULE -> ScheduleScreen(data, padding)
                     Tab.CALENDARS -> CalendarsScreen(data, padding)
                 }
             }
@@ -211,6 +243,10 @@ private fun AppContent(data: Data) {
                 } else {
                     Box(Modifier)
                 }
+            }
+
+            importing?.let { events ->
+                ImportDialog(events, data, onDismiss = { importing = null })
             }
 
             SnackbarHost(

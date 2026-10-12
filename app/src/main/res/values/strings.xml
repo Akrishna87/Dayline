@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Dayline</string>
+    <string name="widget_schedule">Dayline: Schedule</string>
+    <string name="widget_schedule_description">Your next events, day by day.</string>
+    <string name="widget_month">Dayline: Month</string>
+    <string name="widget_month_description">This month, with the days that have events marked.</string>
+    <string name="share_ics">Add to Dayline</string>
 </resources>

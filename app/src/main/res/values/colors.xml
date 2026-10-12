@@ -2,4 +2,7 @@
 <resources>
     <color name="brand">#1A6FD8</color>
     <color name="window_background">#FFFFFF</color>
+    <color name="widget_background">#FAFFFFFF</color>
+    <color name="widget_text">#1C1C21</color>
+    <color name="widget_subtext">#6B6D7B</color>
 </resources>

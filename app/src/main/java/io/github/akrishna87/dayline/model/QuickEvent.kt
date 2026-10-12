@@ -12,7 +12,7 @@ data class ParsedEvent(
     /** From a range like "2-3pm" or "9am to 11am". */
     val end: LocalTime? = null,
     val calendarId: String? = null,
-    val repeat: Repeat? = null,
+    val repeat: Rule? = null,
     /** The character ranges that were recognised, so the text field can highlight them. */
     val matches: List<IntRange> = emptyList(),
 )
@@ -24,7 +24,8 @@ data class ParsedEvent(
  * Dates: today, tomorrow (tmr), weekdays (monday or mon), next week, next friday, this weekend,
  * in 3 days, in 2 weeks, 5 jan, jan 5th, 2026-10-05. Times: 9am, 9:30pm, 21:00, at 5, noon, tonight,
  * and ranges: 2-3pm, 9am-11am, 9am to 11am. Calendar: #Name (an existing calendar; spaces in its
- * name are left out). Repeats: daily, every day, every weekday, every week, every monday, every month, every year.
+ * name are left out). Repeats: daily, every day, every 3 days, every weekday, every other week, every mon, wed,
+ * every 15th, every last day, every 2nd tue, every month, every year.
  */
 object QuickEvent {
     private val months = mapOf(
@@ -61,6 +62,7 @@ object QuickEvent {
             Tok(raw, raw.lowercase(), it.range)
         }.toList()
         val used = BooleanArray(toks.size)
+        val words = toks.map { it.word }
         fun word(i: Int): String? = toks.getOrNull(i)?.word
         fun take(from: Int, count: Int) {
             for (k in from until from + count) used[k] = true
@@ -70,7 +72,7 @@ object QuickEvent {
         var time: LocalTime? = null
         var end: LocalTime? = null
         var calendarId: String? = null
-        var repeat: Repeat? = null
+        var repeat: Rule? = null
 
         var i = 0
         while (i < toks.size) {
@@ -89,33 +91,21 @@ object QuickEvent {
 
             if (n == 0 && repeat == null) {
                 val single = when (w) {
-                    "daily", "everyday" -> Repeat.DAILY
-                    "weekly" -> Repeat.WEEKLY
-                    "monthly" -> Repeat.MONTHLY
-                    "yearly", "annually" -> Repeat.YEARLY
+                    "daily", "everyday" -> Rule.daily()
+                    "weekly" -> Rule(Freq.WEEKLY)
+                    "biweekly", "fortnightly" -> Rule(Freq.WEEKLY, 2)
+                    "monthly" -> Rule(Freq.MONTHLY)
+                    "yearly", "annually" -> Rule.yearly()
                     else -> null
                 }
                 if (single != null) {
                     repeat = single
                     n = 1
-                } else if (w == "every") {
-                    val next = word(i + 1)
-                    val r = when (next) {
-                        "day" -> Repeat.DAILY
-                        "weekday", "workday" -> Repeat.WEEKDAYS
-                        "week" -> Repeat.WEEKLY
-                        "month" -> Repeat.MONTHLY
-                        "year" -> Repeat.YEARLY
-                        else -> null
-                    }
-                    val wd = next?.let { weekdays[it] }
+                } else if (w == "every" || w == "each") {
+                    val r = Rule.parseAfterEvery(words.drop(i + 1))
                     if (r != null) {
-                        repeat = r
-                        n = 2
-                    } else if (wd != null) {
-                        repeat = Repeat.WEEKLY
-                        if (due == null) due = onOrAfter(today, wd)
-                        n = 2
+                        repeat = r.first
+                        n = 1 + r.second
                     }
                 }
             }
@@ -215,12 +205,16 @@ object QuickEvent {
             }
         }
 
+        // A repeat decides the first date (the first that fits, from tomorrow if the time has passed today).
+        val r = repeat
+        if (r != null && due == null) {
+            val t = time
+            due = r.firstOnOrAfter(if (t != null && now != null && !t.isAfter(now)) today.plusDays(1) else today)
+        }
         if (time != null && due == null) {
             due = if (now != null && !time.isAfter(now)) today.plusDays(1) else today
         }
-        if (repeat != null && due == null) {
-            due = if (repeat == Repeat.WEEKDAYS) onOrAfter(today, DayOfWeek.MONDAY).takeIf { today.dayOfWeek.value >= 6 } ?: today else today
-        }
+
 
         return ParsedEvent(
             title = toks.filterIndexed { k, _ -> !used[k] }.joinToString(" ") { input.substring(it.range) }.trim(),

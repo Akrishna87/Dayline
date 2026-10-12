@@ -2,7 +2,8 @@ package io.github.akrishna87.dayline
 
 import io.github.akrishna87.dayline.model.EventCalendar
 import io.github.akrishna87.dayline.model.QuickEvent
-import io.github.akrishna87.dayline.model.Repeat
+import io.github.akrishna87.dayline.model.Freq
+import io.github.akrishna87.dayline.model.Rule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -54,7 +55,7 @@ class QuickEventTest {
     fun repeatsAndCalendars() {
         val p = parse("Standup every weekday 9:30am #work")
         assertEquals("Standup", p.title)
-        assertEquals(Repeat.WEEKDAYS, p.repeat)
+        assertEquals(Rule.workdays(), p.repeat)
         assertEquals(LocalTime.of(9, 30), p.start)
         assertEquals("work", p.calendarId)
         // 9:30 has passed at 10:00, so the first one is tomorrow.
@@ -74,5 +75,16 @@ class QuickEventTest {
         assertNull(p.date)
         assertNull(p.start)
         assertNull(p.repeat)
+    }
+
+    @Test
+    fun richRepeats() {
+        assertEquals(Rule(Freq.DAILY, 3), parse("Water plants every 3 days").repeat)
+        assertEquals(Rule(Freq.WEEKLY, weekdays = setOf(java.time.DayOfWeek.MONDAY, java.time.DayOfWeek.THURSDAY)), parse("Swim every mon, thu 7am").repeat)
+        // The first date fits the rule: next Thursday is the 15th.
+        assertEquals(LocalDate.of(2026, 10, 15), parse("Book club every thursday 7pm").date)
+        assertEquals(Rule(Freq.MONTHLY, weekdays = setOf(java.time.DayOfWeek.TUESDAY), nth = 2), parse("Club every 2nd tue").repeat)
+        assertEquals(LocalDate.of(2026, 10, 13), parse("Club every 2nd tue").date)
+        assertEquals(Rule(Freq.MONTHLY, monthDay = -1), parse("Payday every last day").repeat)
     }
 }
