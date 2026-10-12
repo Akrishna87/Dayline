@@ -83,6 +83,7 @@ echo "PASS: month view"
 echo "--- A new event, typed in plain words"
 tap month "New event"
 wait_for new 'content-desc="Event title"' 10 "the event editor didn't open"
+tap new "Event title"
 sleep 1
 adb shell input text "Team%slunch%stomorrow%s1pm"
 sleep 1
@@ -120,6 +121,7 @@ echo "PASS: repeating events"
 echo "--- An all-day event"
 tap agenda-weekly "New event"
 wait_for allday 'content-desc="Event title"' 10 "the event editor didn't open again"
+tap allday "Event title"
 sleep 1
 adb shell input text "Holiday%sin%s3%sdays"
 sleep 1

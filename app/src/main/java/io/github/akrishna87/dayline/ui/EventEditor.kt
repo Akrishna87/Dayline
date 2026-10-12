@@ -42,6 +42,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -114,6 +116,11 @@ fun EventPage(page: Page.EventPage, data: Data) {
     var reminderMenu by remember { mutableStateOf(false) }
     var calendarMenu by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    val titleFocus = remember { FocusRequester() }
+    LaunchedEffect(page.id) {
+        // A new event opens ready to type its title.
+        if (page.isNew) runCatching { titleFocus.requestFocus() }
+    }
 
     // What the title says, while it still decides the date and time.
     val parsed = if (byHand) null else QuickEvent.parse(title.text, clock.today, clock.now.toLocalTime(), data.allCalendars, Dates.weekStart(data.settings))
@@ -197,7 +204,7 @@ fun EventPage(page: Page.EventPage, data: Data) {
                 placeholder = "Add title",
                 description = "Event title",
                 style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(start = 64.dp, end = 20.dp, top = 8.dp, bottom = 4.dp),
+                modifier = Modifier.padding(start = 64.dp, end = 20.dp, top = 8.dp, bottom = 4.dp).focusRequester(titleFocus),
             )
             if (!byHand) {
                 Text(
