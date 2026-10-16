@@ -80,8 +80,12 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import androidx.compose.ui.graphics.Color
+import android.content.Context
 
 private enum class Picking { START_DATE, START_TIME, END_DATE, END_TIME }
+
+/** How many new events show the typing example before it stops appearing. */
+private const val TIP_TIMES = 3
 
 /**
  * Makes or changes an event. Going back saves it; for a repeating event Google Calendar's question
@@ -142,6 +146,12 @@ fun EventPage(page: Page.EventPage, data: Data) {
     // The time an all-day event goes back to when "All day" is switched off.
     var lastStart by remember { mutableStateOf(initial.start ?: LocalTime.of(9, 0)) }
     var byHand by remember { mutableStateOf(!page.isNew || page.template != null) }
+    val showTip = remember {
+        val prefs = context.getSharedPreferences("tips", Context.MODE_PRIVATE)
+        val seen = prefs.getInt("quick-event", 0)
+        if (!byHand && seen < TIP_TIMES) prefs.edit().putInt("quick-event", seen + 1).apply()
+        seen < TIP_TIMES
+    }
 
     var picking by remember { mutableStateOf<Picking?>(null) }
     var repeatMenu by remember { mutableStateOf(false) }
@@ -282,10 +292,16 @@ fun EventPage(page: Page.EventPage, data: Data) {
                 style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.padding(start = 64.dp, end = 20.dp, top = 8.dp, bottom = 4.dp).focusRequester(titleFocus),
             )
-            if (!byHand) {
+            // What the title was read as; before anything is typed, an example on the first few new events only.
+            val hint = when {
+                byHand -> null
+                parsed != null && parsed.title != title.text.trim() -> "Understood: ${understood(effDate, effStart, effRule?.label(effDate), clock.today, clock.is24Hour)}"
+                showTip && title.text.isEmpty() -> "Try “Lunch with Sam friday 1pm” or “Standup every weekday 9:30am”"
+                else -> null
+            }
+            if (hint != null) {
                 Text(
-                    if (parsed != null && parsed.title != title.text.trim()) "Understood: ${understood(effDate, effStart, effRule?.label(effDate), clock.today, clock.is24Hour)}"
-                    else "Try “Lunch with Sam friday 1pm” or “Standup every weekday 9:30am”",
+                    hint,
                     Modifier.padding(start = 64.dp, end = 20.dp, bottom = 8.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
