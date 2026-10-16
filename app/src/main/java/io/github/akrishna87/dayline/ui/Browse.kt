@@ -70,6 +70,8 @@ import io.github.akrishna87.dayline.model.Recurrence
 import io.github.akrishna87.dayline.model.ReminderChoices
 import io.github.akrishna87.dayline.model.ThemeMode
 import java.time.LocalDate
+import androidx.compose.material.icons.rounded.Event
+import androidx.compose.ui.graphics.Color
 
 /** Calendars to show or hide, add, rename and delete; and the way to Settings. */
 @Composable
@@ -90,7 +92,7 @@ fun CalendarsScreen(data: Data, padding: PaddingValues) {
         item {
             ScreenHeader("Calendars", subtitle = "Tick the ones to show") {
                 SearchAction { nav.push(Page.Search) }
-                IconButton(onClick = { nav.push(Page.SettingsPage) }, Modifier.semantics { contentDescription = "Settings" }) { Icon(Icons.Rounded.Settings, null) }
+                CircleAction(Icons.Rounded.Settings, "Settings") { nav.push(Page.SettingsPage) }
             }
         }
         item {
@@ -98,12 +100,13 @@ fun CalendarsScreen(data: Data, padding: PaddingValues) {
                 IconButton(onClick = { adding = true }, Modifier.semantics { contentDescription = "Add calendar" }) { Icon(Icons.Rounded.Add, null) }
             }
         }
-        items(data.allCalendars, key = { it.id }) { c ->
+        cardItems(data.allCalendars, key = { it.id }) { c, seg ->
             var menu by remember { mutableStateOf(false) }
             val count = data.events.count { it.calendarId == c.id }
             ListRow(
                 c.name,
-                leading = { ColorDot(c.color, 16.dp) },
+                seg,
+                leading = { IconTile(Icons.Rounded.Event, Color(c.color)) },
                 detail = if (count == 1) "1 event" else "$count events",
                 trailing = {
                     Checkbox(
@@ -135,20 +138,22 @@ fun CalendarsScreen(data: Data, padding: PaddingValues) {
             )
         }
         item { SectionHeader("More") }
-        item {
-            ListRow(
-                "Import events",
-                leading = { Icon(Icons.Rounded.FileOpen, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                detail = "From an .ics file, such as one exported from Google Calendar",
-                onClick = { icsPicker.launch(arrayOf("text/calendar", "text/x-vcalendar", "application/ics", "application/octet-stream", "*/*")) },
-            )
-        }
-        item {
-            ListRow(
-                "Settings",
-                leading = { Icon(Icons.Rounded.Settings, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                onClick = { nav.push(Page.SettingsPage) },
-            )
+        card {
+            row {
+                ListRow(
+                    "Import events",
+                    leading = { IconTile(Icons.Rounded.FileOpen, Color(0xFF0E8A8A)) },
+                    detail = "From an .ics file, such as one exported from Google Calendar",
+                    onClick = { icsPicker.launch(arrayOf("text/calendar", "text/x-vcalendar", "application/ics", "application/octet-stream", "*/*")) },
+                )
+            }
+            row {
+                ListRow(
+                    "Settings",
+                    leading = { IconTile(Icons.Rounded.Settings, Color(0xFF5A6275)) },
+                    onClick = { nav.push(Page.SettingsPage) },
+                )
+            }
         }
     }
     if (adding) {
@@ -269,7 +274,8 @@ fun SettingsPage(data: Data) {
         PageBar("Settings", onBack = { nav.pop() })
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 32.dp)) {
             item { SectionHeader("Theme") }
-            items(ThemeMode.entries) { mode ->
+            card {
+            for (mode in ThemeMode.entries) row {
                 ListRow(
                     mode.label,
                     leading = { RadioButton(selected = s.theme == mode, onClick = null) },
@@ -277,8 +283,10 @@ fun SettingsPage(data: Data) {
                     modifier = Modifier.semantics { contentDescription = "Theme: ${mode.label}" },
                 )
             }
+            }
             item { SectionHeader("Calendar") }
-            item {
+            card {
+            row {
                 Box {
                     var durationMenu by remember { mutableStateOf(false) }
                     ListRow("Default event duration", detail = "${s.defaultDuration} minutes", onClick = { durationMenu = true })
@@ -287,21 +295,21 @@ fun SettingsPage(data: Data) {
                     }
                 }
             }
-            item {
+            row {
                 ListRow(
                     "Show week numbers",
                     trailing = { Switch(checked = s.showWeekNumbers, onCheckedChange = { on -> Store.updateSettings { it.copy(showWeekNumbers = on) } }) },
                     onClick = { Store.updateSettings { it.copy(showWeekNumbers = !it.showWeekNumbers) } },
                 )
             }
-            item {
+            row {
                 ListRow(
                     "Show weekends in week view",
                     trailing = { Switch(checked = s.showWeekends, onCheckedChange = { on -> Store.updateSettings { it.copy(showWeekends = on) } }) },
                     onClick = { Store.updateSettings { it.copy(showWeekends = !it.showWeekends) } },
                 )
             }
-            item {
+            row {
                 ListRow(
                     "Second time zone",
                     detail = s.secondZone?.replace('_', ' ') ?: "Off · shown beside the hours in day and week views",
@@ -309,15 +317,17 @@ fun SettingsPage(data: Data) {
                     onClick = { pickingZone = true },
                 )
             }
-            item {
+            row {
                 ListRow(
                     "Week starts on Sunday",
                     trailing = { Switch(checked = s.weekStartsSunday, onCheckedChange = { on -> Store.updateSettings { it.copy(weekStartsSunday = on) } }) },
                     onClick = { Store.updateSettings { it.copy(weekStartsSunday = !it.weekStartsSunday) } },
                 )
             }
+            }
             item { SectionHeader("Reminders") }
-            item {
+            card {
+            row {
                 ListRow(
                     "Remind me before events",
                     detail = "Each event has its own reminder time",
@@ -325,7 +335,7 @@ fun SettingsPage(data: Data) {
                     onClick = { Store.updateSettings { it.copy(reminders = !it.reminders) } },
                 )
             }
-            item {
+            row {
                 Box {
                     ListRow(
                         "Default notifications",
@@ -344,7 +354,7 @@ fun SettingsPage(data: Data) {
                     }
                 }
             }
-            item {
+            row {
                 Box {
                     var allDayMenu by remember { mutableStateOf(false) }
                     ListRow(
@@ -363,11 +373,11 @@ fun SettingsPage(data: Data) {
                     }
                 }
             }
-            item {
+            row {
                 ListRow("All-day notifications at", detail = Dates.timeFormatter(LocalClock.current.is24Hour).format(s.allDayReminderAt), onClick = { pickingAllDayTime = true })
             }
             if (s.reminders && !canNotify) {
-                item {
+                row {
                     ListRow(
                         "Notifications are off",
                         detail = "Tap to allow them, or reminders can't appear",
@@ -386,7 +396,7 @@ fun SettingsPage(data: Data) {
                 }
             }
             if (s.reminders && !canExact && Build.VERSION.SDK_INT >= 31) {
-                item {
+                row {
                     ListRow(
                         "Reminders may be a few minutes late",
                         detail = "Tap to allow exact alarms for on-time reminders",
@@ -399,27 +409,32 @@ fun SettingsPage(data: Data) {
                     )
                 }
             }
+            }
             item { SectionHeader("Backup") }
-            item {
+            card {
+            row {
                 ListRow(
                     "Export backup",
                     detail = "Save every event and calendar to a file",
                     onClick = { exporter.launch("dayline-backup-${LocalDate.now()}.json") },
                 )
             }
-            item {
+            row {
                 ListRow(
                     "Restore from backup",
                     detail = "Replace everything with a backup file",
                     onClick = { importer.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
                 )
             }
+            }
             item { SectionHeader("About") }
-            item {
+            card {
+            row {
                 val version = remember {
                     runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: ""
                 }
                 ListRow("Dayline", detail = "Version $version · Your calendar, on your phone only")
+            }
             }
         }
     }

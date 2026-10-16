@@ -251,7 +251,7 @@ private fun AppContent(data: Data) {
 
             SnackbarHost(
                 snackbar,
-                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding().padding(bottom = 72.dp),
+                Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding().padding(bottom = 92.dp),
             )
         }
     }
@@ -268,33 +268,11 @@ private fun PageContent(page: Page, data: Data) {
 
 @Composable
 private fun BottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
-    Column {
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
-            for (t in Tab.entries) {
-                NavigationBarItem(
-                    selected = t == selected,
-                    onClick = { onSelect(t) },
-                    icon = { Icon(t.icon, null) },
-                    label = { Text(t.label) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                    ),
-                )
-            }
-        }
-    }
+    FloatingNavBar(Tab.entries.map { NavItem(it.label, it.icon) }, Tab.entries.indexOf(selected)) { onSelect(Tab.entries[it]) }
 }
 
 @Composable
 fun Fab(label: String, onClick: () -> Unit) {
-    FloatingActionButton(
-        onClick = onClick,
-        // Label the button itself so screen readers (and the UI tests) find it.
-        modifier = Modifier.semantics { contentDescription = label },
-        containerColor = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
-    ) { Icon(Icons.Rounded.Add, null) }
+    // Labelled on the button itself so screen readers (and the UI tests) find it.
+    KitFab(label, Icons.Rounded.Add, onClick)
 }

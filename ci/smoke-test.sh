@@ -152,18 +152,11 @@ echo "PASS: deleting one occurrence"
 echo "--- Week view"
 dump before-month
 tap before-month "Calendar" last
-wait_for month-back 'content-desc="View: Month"' 10 "the Calendar tab doesn't show the month"
-tap month-back "View: Month"
-sleep 1
-dump view-menu
-tap view-menu "Week"
-wait_for week 'content-desc="View: Week"' 10 "the week view didn't open"
-grep -q 'content-desc="Previous"' "$OUT/week.xml" || fail "the week view has no Previous button"
+wait_for month-back 'content-desc="Next month"' 10 "the Calendar tab doesn't show the month"
+tap month-back "Week"
+wait_for week 'content-desc="Previous"' 10 "the week view didn't open"
 shot 9-week
-tap week "View: Week"
-sleep 1
-dump view-menu-2
-tap view-menu-2 "Month"
+tap week "Month"
 echo "PASS: week view"
 
 echo "--- Next month"

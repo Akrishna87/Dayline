@@ -79,6 +79,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+import androidx.compose.ui.graphics.Color
 
 private enum class Picking { START_DATE, START_TIME, END_DATE, END_TIME }
 
@@ -290,7 +291,7 @@ fun EventPage(page: Page.EventPage, data: Data) {
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(Modifier.padding(start = 70.dp, end = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
             val allDay = effStart == null
             FieldRow(Icons.Rounded.Schedule, onClick = {
@@ -343,7 +344,7 @@ fun EventPage(page: Page.EventPage, data: Data) {
                 }
                 RepeatMenu(repeatMenu, effRule, effDate, { repeatMenu = false }, onCustom = { customRepeat = true }) { rule = it }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(Modifier.padding(start = 70.dp, end = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
             // Notifications: each with a remove button, then a row to add one.
             for (m in reminders.sorted()) {
@@ -358,7 +359,7 @@ fun EventPage(page: Page.EventPage, data: Data) {
                 }
                 ReminderMenu(reminderMenu, reminders, allDay, data.settings.allDayReminderAt, { reminderMenu = false }) { m -> reminders = reminders + m }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(Modifier.padding(start = 70.dp, end = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
             // Guests.
             for (g in guests) {
@@ -390,7 +391,7 @@ fun EventPage(page: Page.EventPage, data: Data) {
                     },
                 )
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(Modifier.padding(start = 70.dp, end = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
 
             FieldRow(Icons.Rounded.Place) {
                 PlainField(location, { location = it }, "Add location", "Location", MaterialTheme.typography.bodyLarge, Modifier.weight(1f), singleLine = true)
@@ -422,7 +423,7 @@ fun EventPage(page: Page.EventPage, data: Data) {
             FieldRow(Icons.Rounded.Work, onClick = { availability = if (availability == Availability.BUSY) Availability.FREE else Availability.BUSY }, description = "Show as") {
                 Text(if (availability == Availability.BUSY) "Busy" else "Free", style = MaterialTheme.typography.bodyLarge)
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            HorizontalDivider(Modifier.padding(start = 70.dp, end = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
             FieldRow(Icons.AutoMirrored.Rounded.Notes) {
                 PlainField(notes, { notes = it }, "Add description", "Notes", MaterialTheme.typography.bodyLarge, Modifier.heightIn(min = 72.dp))
             }
@@ -502,15 +503,29 @@ private fun FieldRow(icon: ImageVector?, onClick: (() -> Unit)? = null, descript
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier)
-            .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 12.dp)
-            .heightIn(min = 28.dp),
+            .padding(start = 16.dp, end = 20.dp, top = 8.dp, bottom = 8.dp)
+            .heightIn(min = 40.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(44.dp)) {
-            if (icon != null) Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(Modifier.width(50.dp)) {
+            if (icon != null) IconTile(icon, fieldHue(icon))
         }
         content()
     }
+}
+
+/** Each field's tile has a colour of its own. */
+private fun fieldHue(icon: ImageVector): Color = when (icon) {
+    Icons.Rounded.Schedule -> Color(0xFF2F6BFF)
+    Icons.Rounded.Language -> Color(0xFF0E8A8A)
+    Icons.Rounded.Repeat -> Color(0xFF2563EB)
+    Icons.Rounded.Notifications -> Color(0xFFB45309)
+    Icons.Rounded.People -> Color(0xFF7C3AED)
+    Icons.Rounded.Place -> Color(0xFFE8590C)
+    Icons.Rounded.Event -> Color(0xFF0B8463)
+    Icons.Rounded.Palette -> Color(0xFFDB2777)
+    Icons.Rounded.Work -> Color(0xFF0E8A8A)
+    else -> Color(0xFF5A6275)
 }
 
 /** "Fri 16 Oct, 13:00, weekly on Fri": what was read from the title. */

@@ -39,6 +39,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -98,40 +101,46 @@ fun CalendarScreen(data: Data, padding: PaddingValues) {
     }
 
     Column(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding())) {
-        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(
                 Modifier.weight(1f).clip(MaterialTheme.shapes.small).clickable { jumping = true }
                     .semantics { contentDescription = "Showing ${DateTimeFormatter.ofPattern("MMMM yyyy").format(shown)}. Jump to a date" }
                     .padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment = Alignment.Bottom,
             ) {
-                Text(Dates.monthTitle(shown, today), style = MaterialTheme.typography.headlineSmall, maxLines = 1)
-                Icon(Icons.Rounded.ArrowDropDown, null)
+                Text(shown.month.getDisplayName(java.time.format.TextStyle.FULL_STANDALONE, java.util.Locale.getDefault()), style = MaterialTheme.typography.headlineLarge, maxLines = 1)
+                Text(
+                    " " + shown.year,
+                    Modifier.padding(bottom = 4.dp),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
             }
             if (!(nav.selected == today && (view != CalendarView.MONTH || nav.month == YearMonth.from(today)))) {
-                TextButton(onClick = { nav.select(today); nav.month = YearMonth.from(today) }) { Text("Today") }
-            }
-            Box {
-                IconButton(onClick = { viewMenu = true }, Modifier.semantics { contentDescription = "View: ${view.label}" }) { Icon(Icons.Rounded.ViewDay, null) }
-                DropdownMenu(expanded = viewMenu, onDismissRequest = { viewMenu = false }) {
-                    for (v in GRID_VIEWS) {
-                        DropdownMenuItem(
-                            text = { Text(v.label) },
-                            onClick = {
-                                viewMenu = false
-                                nav.view = v
-                                if (v == CalendarView.MONTH) nav.month = YearMonth.from(nav.selected)
-                                Store.updateSettings { it.copy(view = v) }
-                            },
-                            trailingIcon = { if (v == view) Icon(Icons.Rounded.Check, null) },
-                        )
-                    }
-                }
+                Text(
+                    "Today",
+                    Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer)
+                        .clickable { nav.select(today); nav.month = YearMonth.from(today) }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
             }
             SearchAction { nav.push(Page.Search) }
         }
+        SegmentedControl(
+            GRID_VIEWS.map { it.label },
+            GRID_VIEWS.indexOf(view),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        ) { i ->
+            val v = GRID_VIEWS[i]
+            nav.view = v
+            if (v == CalendarView.MONTH) nav.month = YearMonth.from(nav.selected)
+            Store.updateSettings { it.copy(view = v) }
+        }
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 4.dp).pointerInput(view, nav.selected, nav.month) {
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp).pointerInput(view, nav.selected, nav.month) {
                 var dx = 0f
                 detectHorizontalDragGestures(onDragStart = { dx = 0f }, onDragEnd = { if (dx < -100) move(1) else if (dx > 100) move(-1) }) { _, a -> dx += a }
             },
@@ -176,7 +185,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.MonthBody(data: Data,
     // Colours of what's on each day in the grid, worked out once for the whole grid.
     val dots = remember(events, data.calendars, grid) {
         val all = Recurrence.between(events, grid.first().first(), grid.last().last())
-        grid.flatten().associateWith { day -> all.filter { it.covers(day) }.map { data.colorOf(it.event) } }
+        grid.flatten().associateWith { day -> all.filter { it.covers(day) }.sortedWith(Recurrence.dayOrder(day)).map { data.colorOf(it.event) to it.event.title.ifBlank { "(No title)" } } }
     }
     val selected = nav.selected
     val onDay = remember(events, selected) { Recurrence.on(events, selected) }
@@ -221,41 +230,42 @@ private fun androidx.compose.foundation.layout.ColumnScope.MonthBody(data: Data,
             }
         }
     }
-    HorizontalDivider(Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
-    LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 88.dp)) {
+    LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(top = 8.dp, bottom = 88.dp)) {
         item {
-            Text(
-                Dates.dayHeading(selected, today),
-                Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp),
-                style = MaterialTheme.typography.titleSmall,
-                color = if (selected == today) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            )
-        }
-        if (onDay.isEmpty()) {
-            item {
+            KitCard(Modifier.fillMaxWidth().padding(horizontal = 12.dp), padding = PaddingValues(top = 12.dp, bottom = 8.dp)) {
                 Text(
-                    "Nothing planned",
-                    Modifier.fillMaxWidth().clickable { nav.newEvent(selected) }.padding(horizontal = 20.dp, vertical = 12.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    Dates.dayHeading(selected, today),
+                    Modifier.padding(start = 16.dp, bottom = 6.dp),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                    color = if (selected == today) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 )
+                if (onDay.isEmpty()) {
+                    Text(
+                        "Nothing planned",
+                        Modifier.fillMaxWidth().clickable { nav.newEvent(selected) }.padding(horizontal = 16.dp, vertical = 10.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                for (o in onDay) {
+                    EventRow(o, selected, data, Modifier.padding(horizontal = 10.dp, vertical = 3.dp)) { nav.push(Page.EventPage(o.event.id, o.day)) }
+                }
             }
-        }
-        items(onDay, key = { it.event.id + it.day }) { o ->
-            EventRow(o, selected, data) { nav.push(Page.EventPage(o.event.id, o.day)) }
         }
     }
 }
 
 @Composable
-private fun DayCell(day: LocalDate, inMonth: Boolean, isToday: Boolean, isSelected: Boolean, colors: List<Int>, modifier: Modifier, onClick: () -> Unit) {
+private fun DayCell(day: LocalDate, inMonth: Boolean, isToday: Boolean, isSelected: Boolean, colors: List<Pair<Int, String>>, modifier: Modifier, onClick: () -> Unit) {
     val primary = MaterialTheme.colorScheme.primary
     val label = DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL).format(day) +
         if (colors.isEmpty()) "" else ", ${colors.size} event${if (colors.size == 1) "" else "s"}"
     Column(
         modifier
-            .height(52.dp)
-            .clip(MaterialTheme.shapes.small)
+            .height(64.dp)
+            .padding(1.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isSelected && !isToday) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
             .clickable(onClick = onClick)
             .semantics {
                 contentDescription = label
@@ -264,23 +274,13 @@ private fun DayCell(day: LocalDate, inMonth: Boolean, isToday: Boolean, isSelect
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
-            Modifier
-                .padding(top = 4.dp)
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(
-                    when {
-                        isToday -> primary
-                        isSelected -> MaterialTheme.colorScheme.primaryContainer
-                        else -> Color.Transparent
-                    },
-                ),
+            Modifier.padding(top = 3.dp).size(26.dp).clip(CircleShape).background(if (isToday) primary else Color.Transparent),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 day.dayOfMonth.toString(),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (isToday || isSelected) FontWeight.Bold else FontWeight.Normal,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (isToday || isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
                 color = when {
                     isToday -> MaterialTheme.colorScheme.onPrimary
                     isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
@@ -289,9 +289,18 @@ private fun DayCell(day: LocalDate, inMonth: Boolean, isToday: Boolean, isSelect
                 },
             )
         }
-        Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            for (c in colors.take(3)) Box(Modifier.size(5.dp).clip(CircleShape).background(Color(c).copy(alpha = if (inMonth) 1f else 0.5f)))
+        for ((c, title) in colors.take(2)) {
+            val (bg, fg) = eventTint(Color(c))
+            Text(
+                title,
+                Modifier.padding(top = 2.dp, start = 2.dp, end = 2.dp).fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(bg).padding(horizontal = 3.dp),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold),
+                color = fg.copy(alpha = if (inMonth) 1f else 0.5f),
+                maxLines = 1,
+                overflow = TextOverflow.Clip,
+            )
         }
+        if (colors.size > 2) Text("+${colors.size - 2}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -312,7 +321,7 @@ fun ScheduleScreen(data: Data, padding: PaddingValues) {
         item {
             ScreenHeader("Schedule", subtitle = if (from == null) "The next three months" else "From " + Dates.fieldDate(start, today)) {
                 if (from != null) TextButton(onClick = { from = null }) { Text("Today") }
-                IconButton(onClick = { jumping = true }, Modifier.semantics { contentDescription = "Jump to a date" }) { Icon(Icons.Rounded.EventAvailable, null) }
+                CircleAction(Icons.Rounded.EventAvailable, "Jump to a date") { jumping = true }
                 SearchAction { nav.push(Page.Search) }
             }
         }
@@ -320,16 +329,45 @@ fun ScheduleScreen(data: Data, padding: PaddingValues) {
             item { EmptyState(Icons.Rounded.EventAvailable, "Nothing planned", "Events for the next three months show here. Tap + to add one.") }
         }
         for ((day, list) in days) {
-            item(key = "h-$day") {
-                SectionHeader(Dates.dayHeading(day, today), color = if (day == today) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-            }
-            items(list, key = { "$day-${it.event.id}-${it.day}" }) { o ->
-                EventRow(o, day, data) { nav.push(Page.EventPage(o.event.id, o.day)) }
-            }
-            item(key = "s-$day") { Spacer(Modifier.height(4.dp)) }
+            item(key = "d-$day") { ScheduleDay(day, today, list, data) }
         }
     }
     if (jumping) DatePickDialog(start, onPick = { from = it }, onDismiss = { jumping = false })
+}
+
+/** A day in the Schedule: its date in a badge on the left, its events as cards beside it. */
+@Composable
+private fun ScheduleDay(day: LocalDate, today: LocalDate, list: List<io.github.akrishna87.dayline.model.Occurrence>, data: Data) {
+    val nav = LocalNav.current
+    val isToday = day == today
+    Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 12.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.Top) {
+        Column(
+            Modifier.width(56.dp).padding(top = 4.dp).semantics(mergeDescendants = true) { contentDescription = Dates.dayHeading(day, today) },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                day.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault()).uppercase(),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, letterSpacing = 0.6.sp),
+                color = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Box(
+                Modifier.padding(top = 2.dp).size(38.dp).clip(CircleShape).background(if (isToday) MaterialTheme.colorScheme.primary else Color.Transparent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    day.dayOfMonth.toString(),
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+                    color = if (isToday) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            if (day.dayOfMonth == 1 || isToday) {
+                Text(DateTimeFormatter.ofPattern("MMM").format(day), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (o in list) EventRow(o, day, data, Modifier) { nav.push(Page.EventPage(o.event.id, o.day)) }
+        }
+    }
 }
 
 const val AGENDA_DAYS = 92

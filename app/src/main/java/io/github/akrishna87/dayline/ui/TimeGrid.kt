@@ -30,6 +30,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -137,7 +139,7 @@ fun TimeGrid(days: List<LocalDate>, data: Data) {
                         Modifier.size(32.dp).clip(CircleShape).background(if (isToday) MaterialTheme.colorScheme.primary else Color.Transparent),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(d.dayOfMonth.toString(), style = MaterialTheme.typography.titleMedium, fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
+                        Text(d.dayOfMonth.toString(), style = MaterialTheme.typography.titleMedium, fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.SemiBold,
                             color = if (isToday) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
                     }
                 }
@@ -151,12 +153,13 @@ fun TimeGrid(days: List<LocalDate>, data: Data) {
                 for ((i, list) in allDay.withIndex()) {
                     Column(Modifier.weight(1f).padding(horizontal = 1.dp)) {
                         for (o in list.take(3)) {
+                            val (bg, fg) = eventTint(Color(data.colorOf(o.event)))
                             Text(
                                 o.event.title.ifBlank { "(No title)" },
-                                Modifier.fillMaxWidth().padding(vertical = 1.dp).clip(RoundedCornerShape(4.dp))
-                                    .background(Color(data.colorOf(o.event))).clickable { nav.push(Page.EventPage(o.event.id, o.day)) }
-                                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                                color = Color.White, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                Modifier.fillMaxWidth().padding(vertical = 1.dp).clip(RoundedCornerShape(8.dp))
+                                    .background(bg).clickable { nav.push(Page.EventPage(o.event.id, o.day)) }
+                                    .padding(horizontal = 6.dp, vertical = 3.dp),
+                                color = fg, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
                         }
                         if (list.size > 3) Text("+${list.size - 3}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -205,10 +208,10 @@ fun TimeGrid(days: List<LocalDate>, data: Data) {
                         // Hour lines.
                         Column {
                             for (h in 0 until 24) {
-                                Box(Modifier.height(HOUR).fillMaxWidth()) { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)) }
+                                Box(Modifier.height(HOUR).fillMaxWidth()) { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
                             }
                         }
-                        Box(Modifier.width(1.dp).fillMaxSize().background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)))
+                        Box(Modifier.width(1.dp).fillMaxSize().background(MaterialTheme.colorScheme.outlineVariant))
                         for (p in layout(d, timed)) {
                             val top = HOUR * (p.startMin / 60f)
                             val height = HOUR * ((p.endMin - p.startMin) / 60f)
@@ -216,6 +219,7 @@ fun TimeGrid(days: List<LocalDate>, data: Data) {
                             var dragY by remember(p.o.event.id, p.o.day) { mutableFloatStateOf(0f) }
                             var dragX by remember(p.o.event.id, p.o.day) { mutableFloatStateOf(0f) }
                             val color = Color(data.colorOf(p.o.event))
+                            val (tintBg, tintFg) = eventTint(color)
                             val past = !p.o.end.isAfter(clock.now)
                             Box(
                                 Modifier
@@ -223,8 +227,10 @@ fun TimeGrid(days: List<LocalDate>, data: Data) {
                                     .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) }
                                     .width(w - 2.dp)
                                     .height(height - 2.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (past) color.copy(alpha = 0.55f) else color)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(tintBg)
+                                    .drawBehind { drawRect(color.copy(alpha = if (past) 0.5f else 1f), size = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height)) }
+                                    .graphicsLayer { alpha = if (past) 0.6f else 1f }
                                     .pointerInput(p.o.event.id, p.o.day) {
                                         detectTapGestures { nav.push(Page.EventPage(p.o.event.id, p.o.day)) }
                                     }
@@ -247,14 +253,14 @@ fun TimeGrid(days: List<LocalDate>, data: Data) {
                                         }
                                     }
                                     .semantics { contentDescription = p.o.event.title.ifBlank { "(No title)" } + ", " + Dates.timeLabel(p.o, d, clock.is24Hour) }
-                                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                                    .padding(start = 7.dp, end = 4.dp, top = 3.dp, bottom = 2.dp),
                             ) {
                                 Column {
-                                    Text(p.o.event.title.ifBlank { "(No title)" }, color = Color.White, style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.SemiBold, maxLines = if (height < 40.dp) 1 else 2, overflow = TextOverflow.Ellipsis)
-                                    if (height >= 40.dp) Text(Dates.timeLabel(p.o, d, clock.is24Hour), color = Color.White.copy(alpha = 0.9f),
+                                    Text(p.o.event.title.ifBlank { "(No title)" }, color = tintFg, style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.ExtraBold, maxLines = if (height < 40.dp) 1 else 2, overflow = TextOverflow.Ellipsis)
+                                    if (height >= 40.dp) Text(Dates.timeLabel(p.o, d, clock.is24Hour), color = tintFg.copy(alpha = 0.85f),
                                         style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                                    if (height >= 60.dp && p.o.event.location.isNotBlank()) Text(p.o.event.location, color = Color.White.copy(alpha = 0.9f),
+                                    if (height >= 60.dp && p.o.event.location.isNotBlank()) Text(p.o.event.location, color = tintFg.copy(alpha = 0.85f),
                                         style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
